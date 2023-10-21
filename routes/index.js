@@ -10,9 +10,9 @@ router.get("/", function (req, res, next) {
 router.get("/getMeetings", async function (req, res, next) {
   try {
     const query = `
-  SELECT meetings.meeting_id, meetings.title, meetings.date, meetings.time, meeting_series.meeting_series_name
-  FROM meetings
-  JOIN meeting_series ON meetings.series_id = meeting_series.meeting_series_id;
+    SELECT meetings.meeting_id, meetings.agenda_id, meetings.title, meetings.date, meetings.start_time, meetings.end_time, meeting_series.meeting_series_name
+FROM meetings
+LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
 `;
     const allMeetings = await pool.query(query);
     res.json(allMeetings.rows);
