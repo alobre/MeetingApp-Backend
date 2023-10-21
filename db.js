@@ -129,6 +129,31 @@ app.delete('/users/:id', (req, res) => {
   });
 });
 
+app.post('/meetings', (req, res) => {
+  const meeting_id = req.params.id;
+  console.log(req.params)
+  // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
+  //   if (err) {
+  //     console.error('Error deleting user from the database', err);
+  //     res.status(500).json({ error: 'Internal server error' });
+  //   } else {
+  //     res.json({ message: 'Meeting deleted successfully' });
+  //   }
+  // });
+});
+
+app.delete('/meetings/:id', (req, res) => {
+  const meeting_id = req.params.id;
+
+  pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
+    if (err) {
+      console.error('Error deleting user from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'Meeting deleted successfully' });
+    }
+  });
+});
 
 module.exports = pool;
 

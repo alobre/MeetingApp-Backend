@@ -20,6 +20,18 @@ LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
     console.error(err.message);
   }
 });
+router.post('/meetings', (req, res) => {
+  const meeting = req.body;
+  console.log(req.body)
+  // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
+  //   if (err) {
+  //     console.error('Error deleting user from the database', err);
+  //     res.status(500).json({ error: 'Internal server error' });
+  //   } else {
+  //     res.json({ message: 'Meeting deleted successfully' });
+  //   }
+  // });
+});
 
 module.exports = router;
 
