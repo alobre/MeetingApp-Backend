@@ -11,9 +11,9 @@ router.get("/getMeetings", async function (req, res, next) {
   try {
     const query = `
     SELECT meetings.meeting_id, meetings.agenda_id, meetings.title, meetings.date, meetings.start_time, meetings.end_time, meeting_series.meeting_series_name
-FROM meetings
-LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
-`;
+    FROM meetings
+    LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
+    `;
     const allMeetings = await pool.query(query);
     res.json(allMeetings.rows);
   } catch (err) {
@@ -31,6 +31,107 @@ router.post('/meetings', (req, res) => {
   //     res.json({ message: 'Meeting deleted successfully' });
   //   }
   // });
+});
+
+router.get('/users', (req, res) => {
+  // Use COUNT() to get the total number of users
+  pool.query('SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;', (err, result) => {
+    if (err) {
+      console.error('Error executing SQL query', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      console.log(result)
+      // Extract the count from the first query result
+      const totalUsers = result[0].rows[0].total_users;
+
+      // Extract user data from the second query result
+      const users = result[1].rows;
+
+      // Create a response object with both the count and user data
+      const response = {
+        totalUsers,
+        users,
+      };
+      res.json(response);
+      // res.send(response)
+    }
+  });
+});
+
+router.post('/users', (req, res) => {
+  const { username, email } = req.body;
+  console.log(req.body)
+
+  if (!username || !email) {
+    return res.status(400).json({ error: 'Both username and email are required' });
+  }
+
+  pool.query('INSERT INTO users (username, email) VALUES ($1, $2)', [username, email], (err, result) => {
+    if (err) {
+      console.error('Error inserting user into the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.status(201).json({ message: 'User created successfully' });
+    }
+  });
+});
+
+router.put('/users/:id', (req, res) => {
+  const userId = req.params.id;
+  const { username, email } = req.body;
+
+  if (!username || !email) {
+    return res.status(400).json({ error: 'Both username and email are required' });
+  }
+
+  pool.query('UPDATE users SET username = $1, email = $2 WHERE id = $3', [username, email, userId], (err, result) => {
+    if (err) {
+      console.error('Error updating user in the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'User updated successfully' });
+    }
+  });
+});
+
+
+router.delete('/users/:id', (req, res) => {
+  const userId = req.params.id;
+
+  pool.query('DELETE FROM users WHERE id = $1', [userId], (err, result) => {
+    if (err) {
+      console.error('Error deleting user from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'User deleted successfully' });
+    }
+  });
+});
+
+router.post('/meetings', (req, res) => {
+  const meeting_id = req.params.id;
+  console.log(req.params)
+  // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
+  //   if (err) {
+  //     console.error('Error deleting user from the database', err);
+  //     res.status(500).json({ error: 'Internal server error' });
+  //   } else {
+  //     res.json({ message: 'Meeting deleted successfully' });
+  //   }
+  // });
+});
+
+router.delete('/meetings/:id', (req, res) => {
+  const meeting_id = req.params.id;
+
+  pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
+    if (err) {
+      console.error('Error deleting user from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'Meeting deleted successfully' });
+    }
+  });
 });
 
 module.exports = router;

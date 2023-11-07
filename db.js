@@ -1,5 +1,5 @@
-const express = require('express');
-const app = express();
+var express = require('express');
+var app = express.Router();
 const { Pool } = require('pg');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
@@ -74,12 +74,14 @@ app.post('/users', (req, res) => {
 
 
 app.get('/users', (req, res) => {
+  console.log("first")
   // Use COUNT() to get the total number of users
   pool.query('SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;', (err, result) => {
     if (err) {
       console.error('Error executing SQL query', err);
       res.status(500).json({ error: 'Internal server error' });
     } else {
+      console.log(result)
       // Extract the count from the first query result
       const totalUsers = result[0].rows[0].total_users;
 
@@ -88,11 +90,11 @@ app.get('/users', (req, res) => {
 
       // Create a response object with both the count and user data
       const response = {
-        total_users: totalUsers,
-        users: users,
+        totalUsers,
+        users,
       };
-
       res.json(response);
+      res.send(response)
     }
   });
 });
