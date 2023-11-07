@@ -134,6 +134,26 @@ router.delete('/meetings/:id', (req, res) => {
   });
 });
 
+router.get('/agenda/:id', (req, res) => {
+  // Use COUNT() to get the total number of users
+  const agenda_id = req.params.id;
+  const query = {
+    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, a.is_finalized
+    FROM meetings as m
+    JOIN agendas as a ON m.agenda_id = a.agenda_id
+    WHERE m.meeting_id = $1;`,
+    values: [agenda_id]
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error('Error executing SQL query', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.send(result.rows[0])
+    }
+  });
+});
+
 module.exports = router;
 
 // from routerget
