@@ -10,9 +10,9 @@ router.get("/", function (req, res, next) {
 router.get("/getMeetings", async function (req, res, next) {
   try {
     const query = `
-    SELECT meetings.meeting_id, meetings.agenda_id, meetings.title, meetings.date, meetings.start_time, meetings.end_time, meeting_series.meeting_series_name
-    FROM meetings
-    LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
+      SELECT meetings.meeting_id, meetings.agenda_id, meetings.title, meetings.date, meetings.start_time, meetings.end_time, meeting_series.meeting_series_name
+      FROM meetings
+      LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
     `;
     const allMeetings = await pool.query(query);
     res.json(allMeetings.rows);
@@ -138,9 +138,12 @@ router.get('/agenda/:id', (req, res) => {
   // Use COUNT() to get the total number of users
   const agenda_id = req.params.id;
   const query = {
-    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, a.is_finalized
+    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, a.is_finalized, ap.text, ap.action_point_id, apc.user_id, apc.comment_text, apsp.action_point_subpoint_id, apsp.message
     FROM meetings as m
     JOIN agendas as a ON m.agenda_id = a.agenda_id
+    JOIN action_points as ap ON m.agenda_id = ap.agenda_id
+    JOIN action_point_comments as apc ON apc.action_point_id = ap.action_point_id
+    JOIN action_point_subpoints as apsp ON apsp.action_point_id = ap.action_point_id
     WHERE m.meeting_id = $1;`,
     values: [agenda_id]
   };
