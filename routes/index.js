@@ -156,6 +156,27 @@ router.get('/agenda/:id', (req, res) => {
     }
   });
 });
+router.get('/actionPoints/:id', (req, res) => {
+  // Use COUNT() to get the total number of users
+  const agenda_id = req.params.id;
+  const query = {
+    text: `SELECT ap.agenda_id, ap.text, ap.action_point_id, apc.user_id, apc.comment_text, apsp.action_point_subpoint_id, apsp.message
+    FROM action_points AS ap 
+    LEFT JOIN action_point_comments AS apc ON apc.action_point_id = ap.action_point_id
+    LEFT JOIN action_point_subpoints AS apsp ON apsp.action_point_id = ap.action_point_id
+    WHERE ap.agenda_id = $1;
+    `,
+    values: [agenda_id]
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error('Error executing SQL query', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.send(result.rows)
+    }
+  });
+});
 
 module.exports = router;
 
