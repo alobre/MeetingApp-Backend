@@ -157,26 +157,85 @@ router.get('/agenda/:id', (req, res) => {
   });
 });
 router.get('/actionPoints/:id', (req, res) => {
-  // Use COUNT() to get the total number of users
   const agenda_id = req.params.id;
-  const query = {
-    text: `SELECT ap.agenda_id, ap.text, ap.action_point_id, apc.user_id, apc.comment_text, apsp.action_point_subpoint_id, apsp.message
-    FROM action_points AS ap 
-    LEFT JOIN action_point_comments AS apc ON apc.action_point_id = ap.action_point_id
-    LEFT JOIN action_point_subpoints AS apsp ON apsp.action_point_id = ap.action_point_id
-    WHERE ap.agenda_id = $1;
+  const actionPointQuery = {
+    text: `SELECT *
+    FROM action_points
+    WHERE agenda_id = $1;
     `,
     values: [agenda_id]
   };
-  pool.query(query, (err, result) => {
+  let actionPoints;
+  pool.query(actionPointQuery, (err, result) => {
     if (err) {
       console.error('Error executing SQL query', err);
       res.status(500).json({ error: 'Internal server error' });
     } else {
-      res.send(result.rows)
+      actionPoints = result.rows;
+      
+      const promises = actionPoints.map(ap => {
+        const actionPointCommentsQuery = {
+          text: `
+            SELECT
+              action_point_comment_id,
+              user_id, 
+              comment_text
+            FROM action_point_comments
+            WHERE action_point_id = $1;
+          `,
+          values: [ap.action_point_id]
+        };
+      
+        const actionPointSubPointsQuery = {
+          text: `
+            SELECT
+              action_point_subpoint_id,
+              message
+            FROM action_point_subpoints
+            WHERE action_point_id = $1;
+          `,
+          values: [ap.action_point_id]
+        };
+      
+        const commentPromise = new Promise((resolve, reject) => {
+          pool.query(actionPointCommentsQuery, (err, result) => {
+            if (err) {
+              console.error('Error executing comments query', err);
+              reject(err);
+            } else {
+              ap = { ...ap, actionPointComments: result.rows };
+              resolve(ap);
+            }
+          });
+        });
+      
+        const subPointPromise = new Promise((resolve, reject) => {
+          pool.query(actionPointSubPointsQuery, (err, result) => {
+            if (err) {
+              console.error('Error executing subpoints query', err);
+              reject(err);
+            } else {
+              ap = { ...ap, actionPointSubPoints: result.rows };
+              resolve(ap);
+            }
+          });
+        });
+      
+        return Promise.all([commentPromise, subPointPromise]).then(() => ap);
+      });
+      
+      Promise.all(promises)
+        .then(updatedActionPoints => {
+          res.send(updatedActionPoints);
+        })
+        .catch(error => {
+          console.error('Error in processing queries', error);
+          res.status(500).json({ error: 'Internal server error' });
+        });
     }
   });
 });
+
 
 module.exports = router;
 
