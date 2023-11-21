@@ -20,18 +20,6 @@ router.get("/getMeetings", async function (req, res, next) {
     console.error(err.message);
   }
 });
-router.post("/meetings", (req, res) => {
-  const meeting = req.body;
-  console.log(req.body);
-  // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
-  //   if (err) {
-  //     console.error('Error deleting user from the database', err);
-  //     res.status(500).json({ error: 'Internal server error' });
-  //   } else {
-  //     res.json({ message: 'Meeting deleted successfully' });
-  //   }
-  // });
-});
 
 router.get("/users", (req, res) => {
   // Use COUNT() to get the total number of users
