@@ -20,9 +20,9 @@ router.get("/getMeetings", async function (req, res, next) {
     console.error(err.message);
   }
 });
-router.post('/meetings', (req, res) => {
+router.post("/meetings", (req, res) => {
   const meeting = req.body;
-  console.log(req.body)
+  console.log(req.body);
   // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
   //   if (err) {
   //     console.error('Error deleting user from the database', err);
@@ -33,108 +33,171 @@ router.post('/meetings', (req, res) => {
   // });
 });
 
-router.get('/users', (req, res) => {
+router.get("/users", (req, res) => {
   // Use COUNT() to get the total number of users
-  pool.query('SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;', (err, result) => {
-    if (err) {
-      console.error('Error executing SQL query', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      console.log(result)
-      // Extract the count from the first query result
-      const totalUsers = result[0].rows[0].total_users;
+  pool.query(
+    "SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;",
+    (err, result) => {
+      if (err) {
+        console.error("Error executing SQL query", err);
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        console.log(result);
+        // Extract the count from the first query result
+        const totalUsers = result[0].rows[0].total_users;
 
-      // Extract user data from the second query result
-      const users = result[1].rows;
+        // Extract user data from the second query result
+        const users = result[1].rows;
 
-      // Create a response object with both the count and user data
-      const response = {
-        totalUsers,
-        users,
-      };
-      res.json(response);
-      // res.send(response)
+        // Create a response object with both the count and user data
+        const response = {
+          totalUsers,
+          users,
+        };
+        res.json(response);
+        // res.send(response)
+      }
     }
-  });
+  );
 });
 
-router.post('/users', (req, res) => {
+router.post("/users", (req, res) => {
   const { username, email } = req.body;
-  console.log(req.body)
+  console.log(req.body);
 
   if (!username || !email) {
-    return res.status(400).json({ error: 'Both username and email are required' });
+    return res
+      .status(400)
+      .json({ error: "Both username and email are required" });
   }
 
-  pool.query('INSERT INTO users (username, email) VALUES ($1, $2)', [username, email], (err, result) => {
-    if (err) {
-      console.error('Error inserting user into the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      res.status(201).json({ message: 'User created successfully' });
+  pool.query(
+    "INSERT INTO users (username, email) VALUES ($1, $2)",
+    [username, email],
+    (err, result) => {
+      if (err) {
+        console.error("Error inserting user into the database", err);
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        res.status(201).json({ message: "User created successfully" });
+      }
     }
-  });
+  );
 });
 
-router.put('/users/:id', (req, res) => {
+router.put("/users/:id", (req, res) => {
   const userId = req.params.id;
   const { username, email } = req.body;
 
   if (!username || !email) {
-    return res.status(400).json({ error: 'Both username and email are required' });
+    return res
+      .status(400)
+      .json({ error: "Both username and email are required" });
   }
 
-  pool.query('UPDATE users SET username = $1, email = $2 WHERE id = $3', [username, email, userId], (err, result) => {
-    if (err) {
-      console.error('Error updating user in the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      res.json({ message: 'User updated successfully' });
+  pool.query(
+    "UPDATE users SET username = $1, email = $2 WHERE id = $3",
+    [username, email, userId],
+    (err, result) => {
+      if (err) {
+        console.error("Error updating user in the database", err);
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        res.json({ message: "User updated successfully" });
+      }
     }
-  });
+  );
 });
 
-
-router.delete('/users/:id', (req, res) => {
+router.delete("/users/:id", (req, res) => {
   const userId = req.params.id;
 
-  pool.query('DELETE FROM users WHERE id = $1', [userId], (err, result) => {
+  pool.query("DELETE FROM users WHERE id = $1", [userId], (err, result) => {
     if (err) {
-      console.error('Error deleting user from the database', err);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error("Error deleting user from the database", err);
+      res.status(500).json({ error: "Internal server error" });
     } else {
-      res.json({ message: 'User deleted successfully' });
+      res.json({ message: "User deleted successfully" });
     }
   });
 });
 
-router.post('/meetings', (req, res) => {
-  const meeting_id = req.params.id;
-  console.log(req.params)
-  // pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
-  //   if (err) {
-  //     console.error('Error deleting user from the database', err);
-  //     res.status(500).json({ error: 'Internal server error' });
-  //   } else {
-  //     res.json({ message: 'Meeting deleted successfully' });
-  //   }
-  // });
-});
+router.post("/meetings", async (req, res) => {
+  let client;
 
-router.delete('/meetings/:id', (req, res) => {
-  const meeting_id = req.params.id;
+  try {
+    const meeting = req.body;
 
-  pool.query('DELETE FROM meetings WHERE id = $1', [meeting_id], (err, result) => {
-    if (err) {
-      console.error('Error deleting user from the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      res.json({ message: 'Meeting deleted successfully' });
+    client = await pool.connect();
+
+    // Begin a transaction
+    await client.query("BEGIN");
+
+    // Insert data into agendas table
+    const agendaResult = await client.query(
+      "INSERT INTO agendas (is_finalized) VALUES (false) RETURNING agenda_id"
+    );
+
+    const agendaId = agendaResult.rows[0].agenda_id;
+
+    // Insert meeting data into the meetings table with the agenda_id
+    const meetingResult = await client.query(
+      "INSERT INTO meetings (agenda_id, title, address, room, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING meeting_id",
+      [
+        agendaId,
+        meeting.title,
+        meeting.address,
+        meeting.room,
+        meeting.date,
+        meeting.start_time,
+        meeting.end_time,
+      ]
+    );
+
+    const meetingId = meetingResult.rows[0].meeting_id;
+
+    // Insert meeting series information into the meeting_series table
+    await client.query(
+      "INSERT INTO meeting_series (meeting_id, meeting_series_name, user_id) VALUES ($1, $2, $3)",
+      [meetingId, meeting.meetingType, 1]
+    );
+
+    // Commit the transaction
+    await client.query("COMMIT");
+
+    res.status(201).json({ message: "Meeting created successfully" });
+  } catch (error) {
+    // Rollback the transaction in case of an error
+    if (client) {
+      await client.query("ROLLBACK");
     }
-  });
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
 });
 
-router.get('/agenda/:id', (req, res) => {
+router.delete("/meetings/:id", (req, res) => {
+  const meeting_id = req.params.id;
+
+  pool.query(
+    "DELETE FROM meetings WHERE id = $1",
+    [meeting_id],
+    (err, result) => {
+      if (err) {
+        console.error("Error deleting user from the database", err);
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        res.json({ message: "Meeting deleted successfully" });
+      }
+    }
+  );
+});
+
+router.get("/agenda/:id", (req, res) => {
   // Use COUNT() to get the total number of users
   const agenda_id = req.params.id;
   const query = {
@@ -145,35 +208,35 @@ router.get('/agenda/:id', (req, res) => {
     JOIN action_point_comments as apc ON apc.action_point_id = ap.action_point_id
     JOIN action_point_subpoints as apsp ON apsp.action_point_id = ap.action_point_id
     WHERE m.meeting_id = $1;`,
-    values: [agenda_id]
+    values: [agenda_id],
   };
   pool.query(query, (err, result) => {
     if (err) {
-      console.error('Error executing SQL query', err);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
     } else {
-      res.send(result.rows[0])
+      res.send(result.rows[0]);
     }
   });
 });
-router.get('/actionPoints/:id', (req, res) => {
+router.get("/actionPoints/:id", (req, res) => {
   const agenda_id = req.params.id;
   const actionPointQuery = {
     text: `SELECT *
     FROM action_points
     WHERE agenda_id = $1;
     `,
-    values: [agenda_id]
+    values: [agenda_id],
   };
   let actionPoints;
   pool.query(actionPointQuery, (err, result) => {
     if (err) {
-      console.error('Error executing SQL query', err);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
     } else {
       actionPoints = result.rows;
-      
-      const promises = actionPoints.map(ap => {
+
+      const promises = actionPoints.map((ap) => {
         const actionPointCommentsQuery = {
           text: `
             SELECT
@@ -183,9 +246,9 @@ router.get('/actionPoints/:id', (req, res) => {
             FROM action_point_comments
             WHERE action_point_id = $1;
           `,
-          values: [ap.action_point_id]
+          values: [ap.action_point_id],
         };
-      
+
         const actionPointSubPointsQuery = {
           text: `
             SELECT
@@ -194,13 +257,13 @@ router.get('/actionPoints/:id', (req, res) => {
             FROM action_point_subpoints
             WHERE action_point_id = $1;
           `,
-          values: [ap.action_point_id]
+          values: [ap.action_point_id],
         };
-      
+
         const commentPromise = new Promise((resolve, reject) => {
           pool.query(actionPointCommentsQuery, (err, result) => {
             if (err) {
-              console.error('Error executing comments query', err);
+              console.error("Error executing comments query", err);
               reject(err);
             } else {
               ap = { ...ap, actionPointComments: result.rows };
@@ -208,11 +271,11 @@ router.get('/actionPoints/:id', (req, res) => {
             }
           });
         });
-      
+
         const subPointPromise = new Promise((resolve, reject) => {
           pool.query(actionPointSubPointsQuery, (err, result) => {
             if (err) {
-              console.error('Error executing subpoints query', err);
+              console.error("Error executing subpoints query", err);
               reject(err);
             } else {
               ap = { ...ap, actionPointSubPoints: result.rows };
@@ -220,62 +283,79 @@ router.get('/actionPoints/:id', (req, res) => {
             }
           });
         });
-      
+
         return Promise.all([commentPromise, subPointPromise]).then(() => ap);
       });
-      
+
       Promise.all(promises)
-        .then(updatedActionPoints => {
+        .then((updatedActionPoints) => {
           res.send(updatedActionPoints);
         })
-        .catch(error => {
-          console.error('Error in processing queries', error);
-          res.status(500).json({ error: 'Internal server error' });
+        .catch((error) => {
+          console.error("Error in processing queries", error);
+          res.status(500).json({ error: "Internal server error" });
         });
     }
   });
 });
 
-router.delete('/actionPoint/:id', (req, res) => {
+router.delete("/actionPoint/:id", (req, res) => {
   const action_point_id = req.params.id;
 
-  pool.query('DELETE FROM action_points WHERE action_point_id = $1', [action_point_id], (err, result) => {
-    if (err) {
-      console.error('Error deleting user from the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      res.json({ message: 'actionPoint deleted successfully' });
-    }
-  });
-});
-router.delete('/actionPointSubpoint/:id', (req, res) => {
-  const action_point_subpoint_id = req.params.id;
-
-  pool.query('DELETE FROM action_points_subpoints WHERE action_point_subpoint_id = $1', [action_point_subpoint_id], (err, result) => {
-    if (err) {
-      console.error('Error deleting action_points_subpoint from the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      res.json({ message: 'actionPointSubpoint deleted successfully' });
-    }
-  });
-});
-router.delete('/actionPointComment/:id', (req, res) => {
-  const action_point_comment_id = req.params.id;
-  pool.query('DELETE FROM action_point_comments WHERE action_point_comment_id = $1', [action_point_comment_id], (err, result) => {
-    if (err) {
-      console.error('Error deleting action_points_comment from the database', err);
-      res.status(500).json({ error: 'Internal server error' });
-    } else {
-      if (result.rowCount === 0) {
-        res.status(404).json({ error: 'Action point comment not found' });
+  pool.query(
+    "DELETE FROM action_points WHERE action_point_id = $1",
+    [action_point_id],
+    (err, result) => {
+      if (err) {
+        console.error("Error deleting user from the database", err);
+        res.status(500).json({ error: "Internal server error" });
       } else {
-        res.json({ message: 'Action point comment deleted successfully' });
+        res.json({ message: "actionPoint deleted successfully" });
       }
     }
-  });
+  );
 });
+router.delete("/actionPointSubpoint/:id", (req, res) => {
+  const action_point_subpoint_id = req.params.id;
 
+  pool.query(
+    "DELETE FROM action_points_subpoints WHERE action_point_subpoint_id = $1",
+    [action_point_subpoint_id],
+    (err, result) => {
+      if (err) {
+        console.error(
+          "Error deleting action_points_subpoint from the database",
+          err
+        );
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        res.json({ message: "actionPointSubpoint deleted successfully" });
+      }
+    }
+  );
+});
+router.delete("/actionPointComment/:id", (req, res) => {
+  const action_point_comment_id = req.params.id;
+  pool.query(
+    "DELETE FROM action_point_comments WHERE action_point_comment_id = $1",
+    [action_point_comment_id],
+    (err, result) => {
+      if (err) {
+        console.error(
+          "Error deleting action_points_comment from the database",
+          err
+        );
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        if (result.rowCount === 0) {
+          res.status(404).json({ error: "Action point comment not found" });
+        } else {
+          res.json({ message: "Action point comment deleted successfully" });
+        }
+      }
+    }
+  );
+});
 
 module.exports = router;
 
