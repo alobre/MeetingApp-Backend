@@ -236,6 +236,46 @@ router.get('/actionPoints/:id', (req, res) => {
   });
 });
 
+router.delete('/actionPoint/:id', (req, res) => {
+  const action_point_id = req.params.id;
+
+  pool.query('DELETE FROM action_points WHERE action_point_id = $1', [action_point_id], (err, result) => {
+    if (err) {
+      console.error('Error deleting user from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'actionPoint deleted successfully' });
+    }
+  });
+});
+router.delete('/actionPointSubpoint/:id', (req, res) => {
+  const action_point_subpoint_id = req.params.id;
+
+  pool.query('DELETE FROM action_points_subpoints WHERE action_point_subpoint_id = $1', [action_point_subpoint_id], (err, result) => {
+    if (err) {
+      console.error('Error deleting action_points_subpoint from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.json({ message: 'actionPointSubpoint deleted successfully' });
+    }
+  });
+});
+router.delete('/actionPointComment/:id', (req, res) => {
+  const action_point_comment_id = req.params.id;
+  pool.query('DELETE FROM action_point_comments WHERE action_point_comment_id = $1', [action_point_comment_id], (err, result) => {
+    if (err) {
+      console.error('Error deleting action_points_comment from the database', err);
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      if (result.rowCount === 0) {
+        res.status(404).json({ error: 'Action point comment not found' });
+      } else {
+        res.json({ message: 'Action point comment deleted successfully' });
+      }
+    }
+  });
+});
+
 
 module.exports = router;
 
