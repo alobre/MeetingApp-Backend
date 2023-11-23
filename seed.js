@@ -9,6 +9,7 @@ const pool = new Pool({
 // Create tables if it doesn't exist
 pool.query(
   `
+  -- drop table doesn't work well with seed, i did it direktl in sql elephant browser
   DROP TABLE IF EXISTS action_point_comments CASCADE;
   DROP TABLE IF EXISTS todo CASCADE;
   DROP TABLE IF EXISTS action_point_subpoints CASCADE;
