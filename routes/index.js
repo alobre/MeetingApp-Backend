@@ -10,9 +10,38 @@ router.get("/", function (req, res, next) {
 router.get("/getMeetings", async function (req, res, next) {
   try {
     const query = `
-      SELECT meetings.meeting_id, meetings.agenda_id, meetings.title, meetings.date, meetings.start_time, meetings.end_time, meeting_series.meeting_series_name
-      FROM meetings
-      LEFT JOIN meeting_series ON meetings.meeting_id = meeting_series.meeting_id;
+    SELECT
+    meetings.meeting_id,
+    meetings.meeting_series_id,
+    meetings.agenda_id,
+    meetings.title,
+    meetings.address,
+    meetings.building,
+    meetings.room,
+    meetings.date,
+    meetings.start_time,
+    meetings.end_time,
+    meeting_series.meeting_series_name,
+    array_agg(
+      jsonb_build_object(
+        'user_id', meeting_members.user_id,
+        'edit_agenda', meeting_members.edit_agenda,
+        'is_owner', meeting_members.is_owner,
+        'ldap_name', users.ldap_name,
+        'first_name', users.first_name,
+        'last_name', users.last_name,
+        'email', users.email
+      )
+    ) AS members
+  FROM meetings
+  LEFT JOIN meeting_series ON meetings.meeting_series_id = meeting_series.meeting_series_id
+  LEFT JOIN meeting_members ON meetings.meeting_id = meeting_members.meeting_id
+  LEFT JOIN users ON meeting_members.user_id = users.user_id
+  GROUP BY
+    meetings.meeting_id,
+    meeting_series.meeting_series_name;
+  
+  
     `;
     const allMeetings = await pool.query(query);
     res.json(allMeetings.rows);
@@ -118,21 +147,43 @@ router.post("/meetings", async (req, res) => {
 
     client = await pool.connect();
 
-    // Begin a transaction
+    // begin transaction
     await client.query("BEGIN");
 
-    // Insert data into agendas table
+    // check if a meeting series with the same name already exists
+    const seriesResult = await client.query(
+      "SELECT meeting_series_id FROM meeting_series WHERE meeting_series_name = $1",
+      [meeting.meetingType]
+    );
+
+    let meetingSeriesId;
+
+    if (seriesResult.rows.length > 0) {
+      // use existing meeting series ID if found
+      meetingSeriesId = seriesResult.rows[0].meeting_series_id;
+    } else {
+      // insert a new meeting series if not found
+      const seriesInsertResult = await client.query(
+        "INSERT INTO meeting_series (meeting_series_name) VALUES ($1) RETURNING meeting_series_id",
+        [meeting.meetingType]
+      );
+
+      meetingSeriesId = seriesInsertResult.rows[0].meeting_series_id;
+    }
+
+    // insert blank data into agendas table
     const agendaResult = await client.query(
       "INSERT INTO agendas (is_finalized) VALUES (false) RETURNING agenda_id"
     );
 
     const agendaId = agendaResult.rows[0].agenda_id;
 
-    // Insert meeting data into the meetings table with the agenda_id
+    // insert meeting data into the meetings table with the agenda_id and meeting_series_id
     const meetingResult = await client.query(
-      "INSERT INTO meetings (agenda_id, title, address, room, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING meeting_id",
+      "INSERT INTO meetings (agenda_id, meeting_series_id, title, address, room, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING meeting_id",
       [
         agendaId,
+        meetingSeriesId,
         meeting.title,
         meeting.address,
         meeting.room,
@@ -144,18 +195,39 @@ router.post("/meetings", async (req, res) => {
 
     const meetingId = meetingResult.rows[0].meeting_id;
 
-    // Insert meeting series information into the meeting_series table
-    await client.query(
-      "INSERT INTO meeting_series (meeting_id, meeting_series_name, user_id) VALUES ($1, $2, $3)",
-      [meetingId, meeting.meetingType, 1]
-    );
+    // find user ids for the members
+    const userIds = [];
+    for (const member of meeting.members) {
+      const userResult = await client.query(
+        "SELECT user_id FROM users WHERE first_name = $1",
+        [member.name]
+      );
+      if (userResult.rows.length === 0) {
+        // not found error
+        throw new Error(`User not found with name: ${member.name}`);
+      }
+      userIds.push(userResult.rows[0].user_id);
 
-    // Commit the transaction
+      // insert meeting members into the meeting_members table
+      await client.query(
+        "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false))",
+
+        [
+          userResult.rows[0].user_id,
+          meetingId,
+          member.hasRightsToEdit,
+          member.is_owner,
+        ]
+      );
+    }
+
+    // commit the transaction
     await client.query("COMMIT");
 
     res.status(201).json({ message: "Meeting created successfully" });
   } catch (error) {
-    // Rollback the transaction in case of an error
+    // rollback the transaction in case of an error
+    // TODO in frontend handle errors
     if (client) {
       await client.query("ROLLBACK");
     }
@@ -166,23 +238,6 @@ router.post("/meetings", async (req, res) => {
       client.release();
     }
   }
-});
-
-router.delete("/meetings/:id", (req, res) => {
-  const meeting_id = req.params.id;
-
-  pool.query(
-    "DELETE FROM meetings WHERE id = $1",
-    [meeting_id],
-    (err, result) => {
-      if (err) {
-        console.error("Error deleting user from the database", err);
-        res.status(500).json({ error: "Internal server error" });
-      } else {
-        res.json({ message: "Meeting deleted successfully" });
-      }
-    }
-  );
 });
 
 router.get("/agenda/:id", (req, res) => {
