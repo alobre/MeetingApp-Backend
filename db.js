@@ -9,6 +9,9 @@ const morgan = require('morgan');
 
 const pool = new Pool({
   connectionString: 'postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh',
+  // max: 20, // Adjust this value based on your needs
+  // idleTimeoutMillis: 30000,
+  // connectionTimeoutMillis: 2000,
 });
 
 
@@ -156,6 +159,7 @@ app.delete('/meetings/:id', (req, res) => {
     }
   });
 });
+
 
 module.exports = pool;
 

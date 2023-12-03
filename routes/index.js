@@ -1,6 +1,7 @@
 var express = require("express");
 var router = express.Router();
 const pool = require("../db");
+const { Pool } = require('pg');
 
 /* GET home page. */
 router.get("/", function (req, res, next) {
@@ -50,7 +51,7 @@ router.get("/getMeetings", async function (req, res, next) {
   }
 });
 
-router.get("/users", (req, res) => {
+router.get("/users", async(req, res) => {
   // Use COUNT() to get the total number of users
   pool.query(
     "SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;",
@@ -59,7 +60,6 @@ router.get("/users", (req, res) => {
         console.error("Error executing SQL query", err);
         res.status(500).json({ error: "Internal server error" });
       } else {
-        console.log(result);
         // Extract the count from the first query result
         const totalUsers = result[0].rows[0].total_users;
 
@@ -80,7 +80,6 @@ router.get("/users", (req, res) => {
 
 router.post("/users", (req, res) => {
   const { username, email } = req.body;
-  console.log(req.body);
 
   if (!username || !email) {
     return res
@@ -244,7 +243,11 @@ router.get("/agenda/:id", (req, res) => {
   // Use COUNT() to get the total number of users
   const agenda_id = req.params.id;
   const query = {
-    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, a.is_finalized, ap.text, ap.action_point_id, apc.user_id, apc.comment_text, apsp.action_point_subpoint_id, apsp.message
+    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, m.end_time, m.address, m.building, m.room,
+    a.is_finalized, 
+    ap.text, ap.action_point_id, 
+    apc.user_id, apc.comment_text, 
+    apsp.action_point_subpoint_id, apsp.message
     FROM meetings as m
     JOIN agendas as a ON m.agenda_id = a.agenda_id
     JOIN action_points as ap ON m.agenda_id = ap.agenda_id
@@ -262,7 +265,11 @@ router.get("/agenda/:id", (req, res) => {
     }
   });
 });
-router.get("/actionPoints/:id", (req, res) => {
+
+router.get("/actionPoints/:id", async (req, res) => {
+  const pool = new Pool({connectionString: 'postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh'})
+  const client = await pool.connect()
+
   const agenda_id = req.params.id;
   const actionPointQuery = {
     text: `SELECT *
@@ -272,13 +279,13 @@ router.get("/actionPoints/:id", (req, res) => {
     values: [agenda_id],
   };
   let actionPoints;
-  pool.query(actionPointQuery, (err, result) => {
+  client.query(actionPointQuery, async (err, result) => {
     if (err) {
-      console.error("Error executing SQL query", err);
-      res.status(500).json({ error: "Internal server error" });
+      console.error("Error executing SQL query1", err);
+      res.status(500).json({ error: "Internal server error1" });
     } else {
       actionPoints = result.rows;
-
+      // await client.release();
       const promises = actionPoints.map((ap) => {
         const actionPointCommentsQuery = {
           text: `
@@ -304,38 +311,41 @@ router.get("/actionPoints/:id", (req, res) => {
         };
 
         const commentPromise = new Promise((resolve, reject) => {
-          pool.query(actionPointCommentsQuery, (err, result) => {
+          client.query(actionPointCommentsQuery, async(err, result) => {
             if (err) {
-              console.error("Error executing comments query", err);
+              console.error("Error executing comments query2", err);
               reject(err);
             } else {
               ap = { ...ap, actionPointComments: result.rows };
               resolve(ap);
+              // await client.release();
             }
           });
         });
 
         const subPointPromise = new Promise((resolve, reject) => {
-          pool.query(actionPointSubPointsQuery, (err, result) => {
+          client.query(actionPointSubPointsQuery, async (err, result) => {
             if (err) {
-              console.error("Error executing subpoints query", err);
+              console.error("Error executing subpoints query3", err);
               reject(err);
             } else {
               ap = { ...ap, actionPointSubPoints: result.rows };
               resolve(ap);
+              // await client.release();
             }
           });
         });
-
         return Promise.all([commentPromise, subPointPromise]).then(() => ap);
       });
 
       Promise.all(promises)
-        .then((updatedActionPoints) => {
+        .then(async(updatedActionPoints) => {
           res.send(updatedActionPoints);
+          await client.release();
+          await client.end();
         })
         .catch((error) => {
-          console.error("Error in processing queries", error);
+          console.error("Error in sending queries", error);
           res.status(500).json({ error: "Internal server error" });
         });
     }
@@ -362,7 +372,7 @@ router.delete("/actionPointSubpoint/:id", (req, res) => {
   const action_point_subpoint_id = req.params.id;
 
   pool.query(
-    "DELETE FROM action_points_subpoints WHERE action_point_subpoint_id = $1",
+    "DELETE FROM action_point_subpoints WHERE action_point_subpoint_id = $1",
     [action_point_subpoint_id],
     (err, result) => {
       if (err) {
@@ -400,180 +410,136 @@ router.delete("/actionPointComment/:id", (req, res) => {
   );
 });
 
-module.exports = router;
+router.post('/actionPoint', (req, res) => {
+  const {text, agenda_id} = req.body;
+  const query = {
+    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
+    values: [agenda_id, text],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      const query2 = {
+        text: `SELECT * FROM action_points WHERE a`,
+        values: [agenda_id, text],
+      };
+      pool.query(query2, (err, result) => {
+        if (err) {
+          console.error("Error executing SQL query", err);
+          res.status(500).json({ error: "Internal server error" });
+        } else{
+          res.send(result.rows[0]);
+        }
+      })
+      
+    }
+  });
+});
+router.post('/actionPoint', (req, res) => {
+  const {text, agenda_id} = req.body;
+  const query = {
+    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
+    values: [agenda_id, text],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      const query2 = {
+        text: `SELECT * FROM action_points WHERE agenda_id = $1`,
+        values: [agenda_id],
+      };
+      pool.query(query2, (err, result) => {
+        if (err) {
+          console.error("Error executing SQL query", err);
+          res.status(500).json({ error: "Internal server error" });
+        } else{
+          res.send(result.rows[0]);
+        }
+      })
+      
+    }
+  });
+});
+router.put('/actionPoint', (req, res) => {
+  const {text, agenda_id} = req.body;
+  const query = {
+    text: `UPDATE action_points SET text = $1 WHERE agenda_id = $2`,
+    values: [text, agenda_id],
+  };
 
-// from routerget
-// let meetings = [
-//   {
-//     meetingID: 1231,
-//     date: "2023-07-05",
-//     startTime: "12:15",
-//     endTime: "14:20",
-//     title: "Meeting Board",
-//     meetingAddress: "Hoechstadtplatz 5",
-//     meetingBuilding: "A",
-//     meetingRoom: "4.04",
-//     meetingPlace: "FHTW F1.02",
-//     meetingType: "Project Stardust",
-//     actionPoints: [
-//       {
-//         title: "Opening",
-//         subPoints: [{ title: "Quick introductions" }],
-//         comments: [],
-//       },
-//       {
-//         title: "Courses schedule",
-//         subPoints: [
-//           { title: "Appropriate time for courses" },
-//           { title: "Changing the 8AM time slots" },
-//         ],
-//         comments: [],
-//       },
-//       {
-//         title: "Moodle quiz system bugs",
-//         subPoints: [
-//           { title: "Reported issues" },
-//           { title: "Plans for updates" },
-//         ],
-//         comments: [],
-//       },
-//     ],
-//   },
-//   {
-//     meetingID: 1523,
-//     date: "2023-07-03",
-//     startTime: "12:15",
-//     endTime: "14:20",
-//     title: "Project Stardust Team Meeting",
-//     meetingAddress: "Hoechstadtplatz 5",
-//     meetingBuilding: "A",
-//     meetingRoom: "4.04",
-//     meetingPlace: "FHTW F1.02",
-//     meetingType: "IT Department",
-//     actionPoints: [
-//       {
-//         title: "Beginning",
-//         subPoints: [{ title: "Say something" }],
-//         comments: [],
-//       },
-//       {
-//         title: "Morning classes",
-//         subPoints: [
-//           { title: "Appropriate time for courses" },
-//           { title: "Changing the 8AM time slots" },
-//         ],
-//         comments: [],
-//       },
-//       {
-//         title: "Ferien",
-//         subPoints: [
-//           { title: "Reported issues" },
-//           { title: "Plans for updates" },
-//         ],
-//         comments: [],
-//       },
-//     ],
-//   },
-//   {
-//     meetingID: 1233,
-//     date: "2023-07-02",
-//     startTime: "12:15",
-//     endTime: "14:20",
-//     title: "Board Meeting II",
-//     meetingAddress: "Hoechstadtplatz 5",
-//     meetingBuilding: "A",
-//     meetingRoom: "4.04",
-//     meetingPlace: "FHTW F1.02",
-//     meetingType: "IT Department",
-//     actionPoints: [
-//       {
-//         title: "Introductions",
-//         subPoints: [{ title: "Quick introductions" }],
-//         comments: [],
-//       },
-//       {
-//         title: "Grading",
-//         subPoints: [
-//           { title: "Appropriate time for courses" },
-//           { title: "Changing the 8AM time slots" },
-//         ],
-//         comments: [],
-//       },
-//       {
-//         title: "Salaries",
-//         subPoints: [
-//           { title: "Reported issues" },
-//           { title: "Plans for updates" },
-//         ],
-//         comments: [],
-//       },
-//     ],
-//   },
-//   {
-//     meetingID: 1123,
-//     date: "2023-07-04",
-//     startTime: "12:15",
-//     endTime: "14:20",
-//     title: "Meeting Board IV",
-//     meetingAddress: "Hoechstadtplatz 5",
-//     meetingBuilding: "A",
-//     meetingRoom: "4.04",
-//     meetingPlace: "FHTW F1.02",
-//     meetingType: "Board",
-//     actionPoints: [
-//       {
-//         title: "Opening",
-//         subPoints: [{ title: "Quick introductions" }],
-//         comments: [],
-//       },
-//       {
-//         title: "External contractors",
-//         subPoints: [
-//           { title: "Appropriate time for courses" },
-//           { title: "Changing the 8AM time slots" },
-//         ],
-//         comments: [],
-//       },
-//       {
-//         title: "CIS bugs",
-//         subPoints: [
-//           { title: "Reported issues" },
-//           { title: "Plans for updates" },
-//         ],
-//         comments: [],
-//       },
-//     ],
-//   },
-//   {
-//     meetingID: 1453,
-//     date: "2023-07-01",
-//     startTime: "12:15",
-//     endTime: "14:20",
-//     title: "Semester Opening",
-//     meetingAddress: "Hoechstadtplatz 5",
-//     meetingBuilding: "A",
-//     meetingRoom: "4.04",
-//     meetingPlace: "FHTW F1.02",
-//     meetingType: "Project Stardust",
-//     actionPoints: [
-//       {
-//         title: "Meeting beginning",
-//         subPoints: [{ title: "Quick introductions" }],
-//         comments: [],
-//       },
-//       {
-//         title: "Student questions",
-//         subPoints: [{ title: "Appropriate time for courses" }],
-//         comments: [],
-//       },
-//       {
-//         title: "Answers",
-//         subPoints: [
-//           { title: "Reported issues" },
-//           { title: "Plans for updates" },
-//         ],
-//         comments: [],
-//       },
-//     ],
-//   },
-// ];
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error updating action point", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("Action point updated successfully!");
+    }
+  });
+});
+
+router.post('/actionPointComment', (req, res) => {
+  const {user_id, comment_text, action_point_id} = req.body;
+  const query = {
+    text: `INSERT INTO action_point_comments(user_id, comment_text, action_point_id) VALUES ($1, $2, $3)`,
+    values: [user_id, comment_text, action_point_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("inserted SubPoint successful!");
+    }
+  });
+});
+router.put('/actionPointComment', (req, res) => {
+  const {user_id, comment_text, action_point_id} = req.body;
+  const query = {
+    text: `UPDATE action_point_comments SET comment_text = $1 WHERE action_point_id = $2`,
+    values: [comment_text, action_point_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("Action point comment updated successfully!");
+    }
+  });
+});
+
+router.post('/actionPointSubPoint', (req, res) => {
+  const {message, action_point_id} = req.body;
+  const query = {
+    text: `INSERT INTO action_point_subpoints(message, action_point_id) VALUES ($1, $2)`,
+    values: [message, action_point_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("inserted comment successful!")      
+    }
+  });
+});
+router.put('/actionPointSubPoint', (req, res) => {
+  const {message, action_point_subpoint_id} = req.body;
+  const query = {
+    text: `UPDATE action_point_subpoints SET message = $1 WHERE action_point_subpoint_id = $2`,
+    values: [message, action_point_subpoint_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("Action point subpoint updated successfully!");     
+    }
+  });
+});
+module.exports = router;
