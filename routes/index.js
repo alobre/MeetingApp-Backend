@@ -1,7 +1,7 @@
 var express = require("express");
 var router = express.Router();
 const pool = require("../db");
-const { Pool } = require('pg');
+const { Pool } = require("pg");
 
 /* GET home page. */
 router.get("/", function (req, res, next) {
@@ -51,7 +51,7 @@ router.get("/getMeetings", async function (req, res, next) {
   }
 });
 
-router.get("/users", async(req, res) => {
+router.get("/users", async (req, res) => {
   // Use COUNT() to get the total number of users
   pool.query(
     "SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;",
@@ -235,6 +235,182 @@ router.post("/meetings", async (req, res) => {
   } finally {
     if (client) {
       client.release();
+      client.end();
+    }
+  }
+});
+
+router.put("/meetings", async (req, res) => {
+  let client;
+
+  try {
+    const { meetingId, meeting } = req.body;
+
+    console.log("Request Body:", req.body);
+
+    client = await pool.connect();
+
+    // begin transaction
+    await client.query("BEGIN");
+
+    // Get existing meeting details
+    const existingMeetingResult = await client.query(
+      "SELECT * FROM meetings WHERE meeting_id = $1",
+      [meetingId]
+    );
+
+    if (existingMeetingResult.rows.length === 0) {
+      // Meeting not found error
+      throw new Error(`Meeting not found with ID: ${meetingId}`);
+    }
+
+    const existingMeeting = existingMeetingResult.rows[0];
+
+    if (meeting.meetingAddress !== undefined) {
+      existingMeeting.address = meeting.meetingAddress;
+    }
+
+    if (meeting.meetingBuilding !== undefined) {
+      existingMeeting.building = meeting.meetingBuilding;
+    }
+
+    if (meeting.meetingRoom !== undefined) {
+      existingMeeting.room = meeting.meetingRoom;
+    }
+
+    if (meeting.meetingDate !== undefined) {
+      existingMeeting.date = meeting.meetingDate;
+    }
+
+    if (meeting.meetingStart !== undefined) {
+      existingMeeting.start_time = meeting.meetingStart;
+    }
+
+    if (meeting.meetingEnd !== undefined) {
+      existingMeeting.end_time = meeting.meetingEnd;
+    }
+
+    // Update the meeting details in the database
+    await client.query(
+      "UPDATE meetings SET address = $1, building = $2, room = $3, date = $4, start_time = $5, end_time = $6 WHERE meeting_id = $7",
+      [
+        existingMeeting.address,
+        existingMeeting.building,
+        existingMeeting.room,
+        existingMeeting.date,
+        existingMeeting.start_time,
+        existingMeeting.end_time,
+        meetingId,
+      ]
+    );
+
+    // find user ids for the members
+    const userIds = [];
+    for (const member of meeting.members) {
+      const userResult = await client.query(
+        "SELECT user_id FROM users WHERE first_name = $1",
+        [member.name]
+      );
+      if (userResult.rows.length === 0) {
+        // not found error
+        throw new Error(`User not found with name: ${member.name}`);
+      }
+      userIds.push(userResult.rows[0].user_id);
+
+      // insert meeting members into the meeting_members table
+      await client.query(
+        "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false))",
+
+        [
+          userResult.rows[0].user_id,
+          meetingId,
+          member.hasRightsToEdit,
+          member.is_owner,
+        ]
+      );
+    }
+    // commit the transaction
+    await client.query("COMMIT");
+
+    res.status(200).json({ message: "Meeting details updated successfully" });
+  } catch (error) {
+    // console.log("meeting details in bck " + JSON.stringify(meeting));
+
+    // rollback the transaction in case of an error
+    // TODO in frontend handle errors
+    if (client) {
+      await client.query("ROLLBACK");
+    }
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    if (client) {
+      client.release();
+      client.end();
+    }
+  }
+});
+
+router.delete("/meetings/:meetingIdToDelete", async (req, res) => {
+  const meetingId = req.params.meetingIdToDelete;
+  let client;
+
+  try {
+    client = await pool.connect();
+
+    // Begin the transaction
+    await client.query("BEGIN");
+
+    // Delete action point comments associated with action points in the meeting
+    await client.query(
+      "DELETE FROM action_point_comments WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1))",
+      [meetingId]
+    );
+
+    // Delete action point subpoints associated with action points in the meeting
+    await client.query(
+      "DELETE FROM action_point_subpoints WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1))",
+      [meetingId]
+    );
+
+    // Delete action points associated with the meeting
+    await client.query(
+      "DELETE FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)",
+      [meetingId]
+    );
+
+    // Delete meeting members associated with the meeting
+    await client.query("DELETE FROM meeting_members WHERE meeting_id = $1", [
+      meetingId,
+    ]);
+
+    // Finally, delete the meeting
+    await client.query("DELETE FROM meetings WHERE meeting_id = $1", [
+      meetingId,
+    ]);
+
+    // Delete agendas associated with the meeting
+    await client.query(
+      "DELETE FROM agendas WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)",
+      [meetingId]
+    );
+
+    // Commit the transaction
+    await client.query("COMMIT");
+
+    res
+      .status(200)
+      .json({ message: "Meeting and associated data deleted successfully." });
+  } catch (error) {
+    // Rollback the transaction in case of an error
+    if (client) {
+      await client.query("ROLLBACK");
+    }
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    if (client) {
+      client.release();
     }
   }
 });
@@ -267,8 +443,11 @@ router.get("/agenda/:id", (req, res) => {
 });
 
 router.get("/actionPoints/:id", async (req, res) => {
-  const pool = new Pool({connectionString: 'postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh'})
-  const client = await pool.connect()
+  const pool = new Pool({
+    connectionString:
+      "postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh",
+  });
+  const client = await pool.connect();
 
   const agenda_id = req.params.id;
   const actionPointQuery = {
@@ -311,7 +490,7 @@ router.get("/actionPoints/:id", async (req, res) => {
         };
 
         const commentPromise = new Promise((resolve, reject) => {
-          client.query(actionPointCommentsQuery, async(err, result) => {
+          client.query(actionPointCommentsQuery, async (err, result) => {
             if (err) {
               console.error("Error executing comments query2", err);
               reject(err);
@@ -339,7 +518,7 @@ router.get("/actionPoints/:id", async (req, res) => {
       });
 
       Promise.all(promises)
-        .then(async(updatedActionPoints) => {
+        .then(async (updatedActionPoints) => {
           res.send(updatedActionPoints);
           await client.release();
           await client.end();
@@ -410,8 +589,8 @@ router.delete("/actionPointComment/:id", (req, res) => {
   );
 });
 
-router.post('/actionPoint', (req, res) => {
-  const {text, agenda_id} = req.body;
+router.post("/actionPoint", (req, res) => {
+  const { text, agenda_id } = req.body;
   const query = {
     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
     values: [agenda_id, text],
@@ -429,16 +608,15 @@ router.post('/actionPoint', (req, res) => {
         if (err) {
           console.error("Error executing SQL query", err);
           res.status(500).json({ error: "Internal server error" });
-        } else{
+        } else {
           res.send(result.rows[0]);
         }
-      })
-      
+      });
     }
   });
 });
-router.post('/actionPoint', (req, res) => {
-  const {text, agenda_id} = req.body;
+router.post("/actionPoint", (req, res) => {
+  const { text, agenda_id } = req.body;
   const query = {
     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
     values: [agenda_id, text],
@@ -456,16 +634,15 @@ router.post('/actionPoint', (req, res) => {
         if (err) {
           console.error("Error executing SQL query", err);
           res.status(500).json({ error: "Internal server error" });
-        } else{
+        } else {
           res.send(result.rows[0]);
         }
-      })
-      
+      });
     }
   });
 });
-router.put('/actionPoint', (req, res) => {
-  const {text, agenda_id} = req.body;
+router.put("/actionPoint", (req, res) => {
+  const { text, agenda_id } = req.body;
   const query = {
     text: `UPDATE action_points SET text = $1 WHERE agenda_id = $2`,
     values: [text, agenda_id],
@@ -481,8 +658,8 @@ router.put('/actionPoint', (req, res) => {
   });
 });
 
-router.post('/actionPointComment', (req, res) => {
-  const {user_id, comment_text, action_point_id} = req.body;
+router.post("/actionPointComment", (req, res) => {
+  const { user_id, comment_text, action_point_id } = req.body;
   const query = {
     text: `INSERT INTO action_point_comments(user_id, comment_text, action_point_id) VALUES ($1, $2, $3)`,
     values: [user_id, comment_text, action_point_id],
@@ -496,8 +673,8 @@ router.post('/actionPointComment', (req, res) => {
     }
   });
 });
-router.put('/actionPointComment', (req, res) => {
-  const {user_id, comment_text, action_point_id} = req.body;
+router.put("/actionPointComment", (req, res) => {
+  const { user_id, comment_text, action_point_id } = req.body;
   const query = {
     text: `UPDATE action_point_comments SET comment_text = $1 WHERE action_point_id = $2`,
     values: [comment_text, action_point_id],
@@ -512,8 +689,8 @@ router.put('/actionPointComment', (req, res) => {
   });
 });
 
-router.post('/actionPointSubPoint', (req, res) => {
-  const {message, action_point_id} = req.body;
+router.post("/actionPointSubPoint", (req, res) => {
+  const { message, action_point_id } = req.body;
   const query = {
     text: `INSERT INTO action_point_subpoints(message, action_point_id) VALUES ($1, $2)`,
     values: [message, action_point_id],
@@ -523,12 +700,12 @@ router.post('/actionPointSubPoint', (req, res) => {
       console.error("Error executing SQL query", err);
       res.status(500).json({ error: "Internal server error" });
     } else {
-      res.send("inserted comment successful!")      
+      res.send("inserted comment successful!");
     }
   });
 });
-router.put('/actionPointSubPoint', (req, res) => {
-  const {message, action_point_subpoint_id} = req.body;
+router.put("/actionPointSubPoint", (req, res) => {
+  const { message, action_point_subpoint_id } = req.body;
   const query = {
     text: `UPDATE action_point_subpoints SET message = $1 WHERE action_point_subpoint_id = $2`,
     values: [message, action_point_subpoint_id],
@@ -538,7 +715,7 @@ router.put('/actionPointSubPoint', (req, res) => {
       console.error("Error executing SQL query", err);
       res.status(500).json({ error: "Internal server error" });
     } else {
-      res.send("Action point subpoint updated successfully!");     
+      res.send("Action point subpoint updated successfully!");
     }
   });
 });
