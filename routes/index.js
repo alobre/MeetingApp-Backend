@@ -218,6 +218,25 @@ router.post("/meetings", async (req, res) => {
           member.is_owner,
         ]
       );
+      // insert notification to added member  
+      if(!member.hasRightsToEdit){
+        await client.query(
+          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
+
+          [
+            userResult.rows[0].user_id,
+          ]
+        );
+      } else {
+        await client.query(
+        "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
+
+        [
+          userResult.rows[0].user_id,
+        ]
+        );
+      }
+      
     }
 
     // commit the transaction
@@ -328,6 +347,24 @@ router.put("/meetings", async (req, res) => {
           member.is_owner,
         ]
       );
+      // insert notification to added member  
+      if(!member.hasRightsToEdit){
+        await client.query(
+          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
+
+          [
+            userResult.rows[0].user_id,
+          ]
+        );
+      } else {
+        await client.query(
+        "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
+
+        [
+          userResult.rows[0].user_id,
+        ]
+        );
+      }
     }
     // commit the transaction
     await client.query("COMMIT");
