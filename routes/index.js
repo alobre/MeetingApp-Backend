@@ -199,11 +199,11 @@ router.post("/meetings", async (req, res) => {
     for (const member of meeting.members) {
       const userResult = await client.query(
         "SELECT user_id FROM users WHERE first_name = $1",
-        [member.name]
+        [member.first_name]
       );
       if (userResult.rows.length === 0) {
         // not found error
-        throw new Error(`User not found with name: ${member.name}`);
+        throw new Error(`User not found with name: ${member.first_name}`);
       }
       userIds.push(userResult.rows[0].user_id);
 
