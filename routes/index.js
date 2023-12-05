@@ -218,25 +218,20 @@ router.post("/meetings", async (req, res) => {
           member.is_owner,
         ]
       );
-      // insert notification to added member  
-      if(!member.hasRightsToEdit){
+      // insert notification to added member
+      if (!member.hasRightsToEdit) {
         await client.query(
           "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
 
-          [
-            userResult.rows[0].user_id,
-          ]
+          [userResult.rows[0].user_id]
         );
       } else {
         await client.query(
-        "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
+          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
 
-        [
-          userResult.rows[0].user_id,
-        ]
+          [userResult.rows[0].user_id]
         );
       }
-      
     }
 
     // commit the transaction
@@ -269,17 +264,14 @@ router.put("/meetings", async (req, res) => {
 
     client = await pool.connect();
 
-    // begin transaction
     await client.query("BEGIN");
 
-    // Get existing meeting details
     const existingMeetingResult = await client.query(
       "SELECT * FROM meetings WHERE meeting_id = $1",
       [meetingId]
     );
 
     if (existingMeetingResult.rows.length === 0) {
-      // Meeting not found error
       throw new Error(`Meeting not found with ID: ${meetingId}`);
     }
 
@@ -309,7 +301,7 @@ router.put("/meetings", async (req, res) => {
       existingMeeting.end_time = meeting.meetingEnd;
     }
 
-    // Update the meeting details in the database
+    // update the meeting details
     await client.query(
       "UPDATE meetings SET address = $1, building = $2, room = $3, date = $4, start_time = $5, end_time = $6 WHERE meeting_id = $7",
       [
@@ -328,51 +320,56 @@ router.put("/meetings", async (req, res) => {
     for (const member of meeting.members) {
       const userResult = await client.query(
         "SELECT user_id FROM users WHERE first_name = $1",
-        [member.name]
+        [member.first_name]
       );
       if (userResult.rows.length === 0) {
-        // not found error
-        throw new Error(`User not found with name: ${member.name}`);
+        // user not found error
+        throw new Error(`User not found with name: ${member.first_name}`);
       }
-      userIds.push(userResult.rows[0].user_id);
 
-      // insert meeting members into the meeting_members table
-      await client.query(
-        "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false))",
+      const userId = userResult.rows[0].user_id;
 
-        [
-          userResult.rows[0].user_id,
-          meetingId,
-          member.hasRightsToEdit,
-          member.is_owner,
-        ]
+      // check if the user is already in the meeting_members table
+      const userInMeetingResult = await client.query(
+        "SELECT * FROM meeting_members WHERE user_id = $1 AND meeting_id = $2",
+        [userId, meetingId]
       );
-      // insert notification to added member  
-      if(!member.hasRightsToEdit){
+
+      if (userInMeetingResult.rows.length === 0) {
+        // user not in the meeting_members table, so insert
+        await client.query(
+          "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false))",
+          [userId, meetingId, member.hasRightsToEdit, member.is_owner]
+        );
+      } else {
+        console.log(
+          `User with ID ${userId} is already in the meeting_members table for meeting ID ${meetingId}`
+        );
+      }
+
+      userIds.push(userId);
+
+      // insert notification to added member
+      if (!member.hasRightsToEdit) {
         await client.query(
           "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
 
-          [
-            userResult.rows[0].user_id,
-          ]
+          [userResult.rows[0].user_id]
         );
       } else {
         await client.query(
-        "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
+          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
 
-        [
-          userResult.rows[0].user_id,
-        ]
+          [userResult.rows[0].user_id]
         );
       }
     }
+
     // commit the transaction
     await client.query("COMMIT");
 
     res.status(200).json({ message: "Meeting details updated successfully" });
   } catch (error) {
-    // console.log("meeting details in bck " + JSON.stringify(meeting));
-
     // rollback the transaction in case of an error
     // TODO in frontend handle errors
     if (client) {
@@ -395,51 +392,51 @@ router.delete("/meetings/:meetingIdToDelete", async (req, res) => {
   try {
     client = await pool.connect();
 
-    // Begin the transaction
+    // begin the transaction
     await client.query("BEGIN");
 
-    // Delete action point comments associated with action points in the meeting
+    // delete comments associated with action points in the meeting
     await client.query(
       "DELETE FROM action_point_comments WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1))",
       [meetingId]
     );
 
-    // Delete action point subpoints associated with action points in the meeting
+    // delete subpoints associated with action points in the meeting
     await client.query(
       "DELETE FROM action_point_subpoints WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1))",
       [meetingId]
     );
 
-    // Delete action points associated with the meeting
+    // delete action points associated with the meeting
     await client.query(
       "DELETE FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)",
       [meetingId]
     );
 
-    // Delete meeting members associated with the meeting
+    // delete meeting members associated with the meeting
     await client.query("DELETE FROM meeting_members WHERE meeting_id = $1", [
       meetingId,
     ]);
 
-    // Finally, delete the meeting
+    // delete the meeting
     await client.query("DELETE FROM meetings WHERE meeting_id = $1", [
       meetingId,
     ]);
 
-    // Delete agendas associated with the meeting
+    // delete agenda associated with the meeting
     await client.query(
       "DELETE FROM agendas WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)",
       [meetingId]
     );
 
-    // Commit the transaction
+    // commit the transaction
     await client.query("COMMIT");
 
     res
       .status(200)
       .json({ message: "Meeting and associated data deleted successfully." });
   } catch (error) {
-    // Rollback the transaction in case of an error
+    // rollback in case of an error
     if (client) {
       await client.query("ROLLBACK");
     }
