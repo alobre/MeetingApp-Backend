@@ -449,32 +449,176 @@ router.delete("/meetings/:meetingIdToDelete", async (req, res) => {
   }
 });
 
-router.get("/agenda/:id", (req, res) => {
-  // Use COUNT() to get the total number of users
-  const agenda_id = req.params.id;
-  const query = {
-    text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, m.end_time, m.address, m.building, m.room,
-    a.is_finalized, 
-    ap.text, ap.action_point_id, 
-    apc.user_id, apc.comment_text, 
-    apsp.action_point_subpoint_id, apsp.message
-    FROM meetings as m
-    JOIN agendas as a ON m.agenda_id = a.agenda_id
-    JOIN action_points as ap ON m.agenda_id = ap.agenda_id
-    JOIN action_point_comments as apc ON apc.action_point_id = ap.action_point_id
-    JOIN action_point_subpoints as apsp ON apsp.action_point_id = ap.action_point_id
-    WHERE m.meeting_id = $1;`,
-    values: [agenda_id],
-  };
-  pool.query(query, (err, result) => {
-    if (err) {
-      console.error("Error executing SQL query", err);
-      res.status(500).json({ error: "Internal server error" });
-    } else {
-      res.send(result.rows[0]);
+router.get("/agenda/:id", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const agendaId = req.params.id;
+
+    // Fetch agenda details
+    const agendaQuery = "SELECT * FROM agendas WHERE agenda_id = $1";
+    const agendaResult = await client.query(agendaQuery, [agendaId]);
+    const agenda = agendaResult.rows[0];
+
+    if (!agenda) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Agenda not found" });
     }
-  });
+
+    // Fetch action points for the agenda
+    const actionPointsQuery =
+      "SELECT * FROM action_points WHERE agenda_id = $1";
+    const actionPointsResult = await client.query(actionPointsQuery, [
+      agendaId,
+    ]);
+    const actionPoints = actionPointsResult.rows;
+
+    // Fetch subpoints for each action point
+    for (const actionPoint of actionPoints) {
+      const subpointsQuery =
+        "SELECT * FROM action_point_subpoints WHERE action_point_id = $1";
+      const subpointsResult = await client.query(subpointsQuery, [
+        actionPoint.action_point_id,
+      ]);
+      actionPoint.subpoints = subpointsResult.rows;
+
+      // Fetch comments for each subpoint
+      for (const subpoint of actionPoint.subpoints) {
+        const commentsQuery =
+          "SELECT * FROM action_point_comments WHERE action_point_id = $1";
+        const commentsResult = await client.query(commentsQuery, [
+          subpoint.action_point_subpoint_id,
+        ]);
+        subpoint.comments = commentsResult.rows;
+      }
+    }
+
+    // Fetch meeting details associated with the agenda
+    const meetingQuery = "SELECT * FROM meetings WHERE agenda_id = $1";
+    const meetingResult = await client.query(meetingQuery, [agendaId]);
+    const meeting = meetingResult.rows[0];
+
+    let meetingMembers = [];
+
+    if (meeting) {
+      // Fetch meeting members and user names associated with the meeting
+      const meetingMembersQuery = `
+        SELECT meeting_members.*, users.first_name
+        FROM meeting_members
+        LEFT JOIN users ON meeting_members.user_id = users.user_id
+        WHERE meeting_id = $1
+      `;
+      const meetingMembersResult = await client.query(meetingMembersQuery, [
+        meeting.meeting_id,
+      ]);
+      meetingMembers = meetingMembersResult.rows;
+    }
+
+    // Commit the transaction
+    await client.query("COMMIT");
+
+    // Combine everything into a response object
+    const agendaWithDetails = {
+      agenda,
+      actionPoints,
+      meeting,
+      meetingMembers,
+    };
+
+    res.json(agendaWithDetails);
+  } catch (error) {
+    // Rollback the transaction in case of an error
+    await client.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    // Release the client back to the pool
+    client.release();
+  }
 });
+
+// router.get("/agenda/:id", (req, res) => {
+//   // Use COUNT() to get the total number of users
+//   const agenda_id = req.params.id;
+//   const query = {
+//     text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, m.end_time, m.address, m.building, m.room,
+//     a.is_finalized,
+//     ap.text, ap.action_point_id,
+//     apc.user_id, apc.comment_text,
+//     apsp.action_point_subpoint_id, apsp.message
+//     FROM meetings as m
+//     JOIN agendas as a ON m.agenda_id = a.agenda_id
+//     JOIN action_points as ap ON m.agenda_id = ap.agenda_id
+//     JOIN action_point_comments as apc ON apc.action_point_id = ap.action_point_id
+//     JOIN action_point_subpoints as apsp ON apsp.action_point_id = ap.action_point_id
+//     WHERE m.meeting_id = $1;`,
+//     values: [agenda_id],
+//   };
+//   pool.query(query, (err, result) => {
+//     if (err) {
+//       console.error("Error executing SQL query", err);
+//       res.status(500).json({ error: "Internal server error" });
+//     } else {
+//       res.send(result.rows[0]);
+//     }
+//   });
+// });
+
+// router.get("/agenda/:id", async (req, res) => {
+//   const agendaId = req.params.id;
+
+//   try {
+//     const meetingDetailsQuery = `
+//       SELECT * FROM meetings
+//       WHERE agenda_id = $1;
+//     `;
+
+//     const meetingMembersQuery = `
+//       SELECT m.user_id, m.is_owner, m.edit_agenda, u.first_name
+//       FROM meeting_members m
+//       INNER JOIN users u ON m.user_id = u.user_id
+//       WHERE m.meeting_id = $1;
+//     `;
+
+//     const agendaPointsQuery = `
+//     SELECT
+//       a.action_point_id,
+//       a.text AS action_point_text,
+//       aps.action_point_subpoint_id,
+//       aps.message AS subpoint_message
+//     FROM action_points a
+//     LEFT JOIN action_point_subpoints aps ON a.action_point_id = aps.action_point_id
+//     WHERE a.agenda_id = $1;
+//   `;
+
+//     const commentsQuery = `
+//       SELECT apc.action_point_comment_id, apc.comment_text, apc.user_id, u.first_name
+//       FROM action_point_comments apc
+//       INNER JOIN users u ON apc.user_id = u.user_id
+//       WHERE apc.action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id = $1);
+//     `;
+
+//     const meetingDetails = await pool.query(meetingDetailsQuery, [agendaId]);
+//     const meetingMembers = await pool.query(meetingMembersQuery, [agendaId]);
+//     const agendaPoints = await pool.query(agendaPointsQuery, [agendaId]);
+//     const comments = await pool.query(commentsQuery, [agendaId]);
+
+//     // Construct the response object as per your requirements
+//     const response = {
+//       meetingDetails: meetingDetails.rows,
+//       meetingMembers: meetingMembers.rows,
+//       agendaPoints: agendaPoints.rows,
+//       comments: comments.rows,
+//     };
+
+//     res.json(response);
+//   } catch (error) {
+//     console.error("Error fetching meeting details:", error);
+//     res.status(500).json({ error: "Internal Server Error" });
+//   }
+// });
 
 router.get("/actionPoints/:id", async (req, res) => {
   const pool = new Pool({
