@@ -3,6 +3,89 @@ var router = express.Router();
 const pool = require("../db");
 const { Pool } = require("pg");
 
+/* LOGIN */
+
+const passport = require('passport');
+const LdapStrategy = require('passport-ldapauth');
+
+var dn = "ou=people,dc=technikum-wien,dc=at"
+
+/*
+//router.post('/login', passport.myLogin)
+*/
+//post credentials
+// Route for handling login
+router.post("/login", passport.authenticate('ldapauth', { session: false }), (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ error: "Both username and email are required" });
+  }
+  res.json({ success: true, user: req.user });
+  res.send();
+  
+/*
+  pool.query(
+    "INSERT INTO users (username, email) VALUES ($1, $2)",
+    [username, email],
+    (err, result) => {
+      if (err) {
+        console.error("Error inserting user into the database", err);
+        res.status(500).json({ error: "Internal server error" });
+      } else {
+        res.status(201).json({ message: "User created successfully" });
+      }
+    }
+  );*/
+});
+/*
+router.post('/login', passport.authenticate('ldapauth', { session: false }), (req, res) => {
+  // Authentication successful, handle the response
+  res.json({ success: true, user: req.user });
+  var result;
+  res.send(result)
+});*/
+
+// check if user is already authenticated
+function ensureAuthenticated(req, res, next) {
+  if (!req.user) {
+    res.status(401).json({ success: false, message: "not logged in" })
+  } else {
+    next()
+  }
+};
+//needed?
+/*
+router.get("/api/user", ensureAuthenticated, function (req, res) {
+    res.json({success: true, user:req.user})
+  })
+*/
+var getLDAPConfiguration = function (req, callback) {
+  process.nextTick(function () {
+    var opts = {
+      server: {
+        url: `ldaps://ldap.technikum-wien.at`,
+        bindDn: `uid=${req.body.username},${dn}`,
+        bindCredentials: `${req.body.password}`,
+        searchBase: dn,
+        searchFilter: `uid=${req.body.username}`,
+        reconnect: true
+      }
+    };
+    console.log("User:", req.body.username);
+    callback(null, opts);
+  });
+};
+
+passport.use(new LdapStrategy(getLDAPConfiguration,
+  function (user, done) {
+    console.log("LDAP user ", user, "is logged in.");
+    return done(null, user);
+  }))
+
+  
 /* GET home page. */
 router.get("/", function (req, res, next) {
   res.render("index", { title: "Express" });
