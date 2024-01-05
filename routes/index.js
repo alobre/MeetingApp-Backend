@@ -125,10 +125,10 @@ async function fetchUserFromLDAP(username) {
     });
 
     // in bind dn username (uid) from the user that wants to search
-    const bindDN = `uid=if20b123,ou=people,dc=technikum-wien,dc=at`;
+    const bindDN = `uid=YOUR_UID,ou=people,dc=technikum-wien,dc=at`;
 
     // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
-    client.bind(bindDN, "1.AdmissionCIS", function (bindError) {
+    client.bind(bindDN, "YOUR_PW", function (bindError) {
       if (bindError) {
         console.error("LDAP bind failed:", bindError.message);
         reject(bindError);
