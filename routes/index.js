@@ -2,66 +2,74 @@ var express = require("express");
 var router = express.Router();
 const pool = require("../db");
 const { Pool } = require("pg");
+const ldap = require("ldapjs");
+const fuzzy = require("fuzzy");
 
 /* LOGIN */
 
-const passport = require('passport');
-const LdapStrategy = require('passport-ldapauth');
+const passport = require("passport");
+const LdapStrategy = require("passport-ldapauth");
 
-var dn = "ou=people,dc=technikum-wien,dc=at"
+var dn = "ou=people,dc=technikum-wien,dc=at";
 
-/*
-//router.post('/login', passport.myLogin)
-*/
-//post credentials
 // Route for handling login
-router.post("/login", passport.authenticate('ldapauth', { session: false }), (req, res) => {
-  const { username, password } = req.body;
+router.post(
+  "/login",
+  passport.authenticate("ldapauth", { session: false }),
+  (req, res) => {
+    const { username, password } = req.body;
 
-  if (!username || !password) {
-    return res
-      .status(400)
-      .json({ error: "Both username and email are required" });
-  }
-  res.json({ success: true, user: req.user });
-  res.send();
-  
-/*
-  pool.query(
-    "INSERT INTO users (username, email) VALUES ($1, $2)",
-    [username, email],
-    (err, result) => {
-      if (err) {
-        console.error("Error inserting user into the database", err);
-        res.status(500).json({ error: "Internal server error" });
-      } else {
-        res.status(201).json({ message: "User created successfully" });
-      }
+    if (!username || !password) {
+      return res
+        .status(400)
+        .json({ error: "Both username and email are required" });
     }
-  );*/
+    res.json({ success: true, user: req.user });
+    res.send();
+  }
+);
+
+// helper route for adding logged in user to db and saving the ID of user in localstorage
+router.post("/users", async (req, res) => {
+  const uid = req.body.user.uid;
+  const givenName = req.body.user.givenName;
+  const sn = req.body.user.sn;
+  const mail = req.body.mail;
+
+  try {
+    // check if the user exists in the database
+    const userQuery = await pool.query(
+      "SELECT user_id FROM users WHERE ldap_name = $1",
+      [uid]
+    );
+
+    if (userQuery.rows.length > 0) {
+      // user exists, return id
+      res.status(200).json({ userId: userQuery.rows[0].user_id });
+    } else {
+      // user does not exist, save to db
+      const insertQuery = await pool.query(
+        "INSERT INTO users (ldap_name, first_name, last_name, email, password) VALUES ($1, $2, $3, $4, $5) RETURNING user_id",
+        [uid, givenName, sn, mail, "noPW"]
+      );
+      const userId = insertQuery.rows[0].user_id;
+      res.status(201).json({ userId });
+    }
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
-/*
-router.post('/login', passport.authenticate('ldapauth', { session: false }), (req, res) => {
-  // Authentication successful, handle the response
-  res.json({ success: true, user: req.user });
-  var result;
-  res.send(result)
-});*/
 
 // check if user is already authenticated
 function ensureAuthenticated(req, res, next) {
   if (!req.user) {
-    res.status(401).json({ success: false, message: "not logged in" })
+    res.status(401).json({ success: false, message: "not logged in" });
   } else {
-    next()
+    next();
   }
-};
-//needed?
-/*
-router.get("/api/user", ensureAuthenticated, function (req, res) {
-    res.json({success: true, user:req.user})
-  })
-*/
+}
+
 var getLDAPConfiguration = function (req, callback) {
   process.nextTick(function () {
     var opts = {
@@ -71,25 +79,116 @@ var getLDAPConfiguration = function (req, callback) {
         bindCredentials: `${req.body.password}`,
         searchBase: dn,
         searchFilter: `uid=${req.body.username}`,
-        reconnect: true
-      }
+        reconnect: true,
+      },
     };
     console.log("User:", req.body.username);
     callback(null, opts);
   });
 };
 
-passport.use(new LdapStrategy(getLDAPConfiguration,
-  function (user, done) {
+passport.use(
+  new LdapStrategy(getLDAPConfiguration, function (user, done) {
     console.log("LDAP user ", user, "is logged in.");
     return done(null, user);
-  }))
+  })
+);
 
-  
 /* GET home page. */
 router.get("/", function (req, res, next) {
   res.render("index", { title: "Express" });
 });
+
+router.get("/user/:username", (req, res) => {
+  console.log("req user", req.params.username);
+  const username = req.params.username;
+
+  // fetch LDAP user information
+  fetchUserFromLDAP(username)
+    .then((ldapUser) => {
+      if (!ldapUser) {
+        return res.status(404).json({ error: "User not found in LDAP" });
+      }
+
+      res.json({ success: true, ldapUser });
+    })
+    .catch((error) => {
+      console.error("Error fetching user from LDAP:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    });
+});
+
+async function fetchUserFromLDAP(username) {
+  return new Promise((resolve, reject) => {
+    const client = ldap.createClient({
+      url: "ldaps://ldap.technikum-wien.at:636",
+    });
+
+    // in bind dn username (uid) from the user that wants to search
+    const bindDN = `uid=if20b123,ou=people,dc=technikum-wien,dc=at`;
+
+    // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
+    client.bind(bindDN, "1.AdmissionCIS", function (bindError) {
+      if (bindError) {
+        console.error("LDAP bind failed:", bindError.message);
+        reject(bindError);
+        return;
+      }
+
+      const options = {
+        scope: "sub",
+        filter: `(&(cn=*${username}*)(ou=people))`,
+        attributes: ["cn", "uid", "mail"],
+        paged: {
+          pageSize: 10,
+        },
+      };
+
+      const searchDN = "ou=people,dc=technikum-wien,dc=at";
+      const entries = [];
+
+      client.search(searchDN, options, function (error, res) {
+        console.log("Searching.....");
+
+        res.on("searchEntry", function (entry) {
+          console.log(
+            "Found a result in searchEntry",
+            JSON.stringify(entry.pojo)
+          );
+          entries.push(entry.pojo);
+        });
+
+        res.on("end", function (result) {
+          if (result.status === 0) {
+            console.log("Search complete.");
+            resolve(entries);
+          } else {
+            console.error("Search failed with status:", result.status);
+            reject(
+              new Error(`LDAP search failed with status ${result.status}`)
+            );
+          }
+
+          // unbind from the LDAP server
+          client.unbind(function (unbindError) {
+            if (unbindError) {
+              console.error("Error disconnecting client:", unbindError.message);
+            } else {
+              console.log("Client disconnected");
+            }
+          });
+        });
+
+        res.on("error", function (error) {
+          console.error("Search error:", error.message);
+          // if size limit is exceeded, return what was already found
+          resolve(entries);
+          reject(error);
+        });
+      });
+    });
+  });
+}
 
 router.get("/getMeetings", async function (req, res, next) {
   try {
@@ -135,7 +234,6 @@ router.get("/getMeetings", async function (req, res, next) {
 });
 
 router.get("/users", async (req, res) => {
-  // Use COUNT() to get the total number of users
   pool.query(
     "SELECT COUNT(*) as total_users FROM users; SELECT * FROM users;",
     (err, result) => {
@@ -143,42 +241,16 @@ router.get("/users", async (req, res) => {
         console.error("Error executing SQL query", err);
         res.status(500).json({ error: "Internal server error" });
       } else {
-        // Extract the count from the first query result
         const totalUsers = result[0].rows[0].total_users;
 
-        // Extract user data from the second query result
         const users = result[1].rows;
 
-        // Create a response object with both the count and user data
         const response = {
           totalUsers,
           users,
         };
         res.json(response);
         // res.send(response)
-      }
-    }
-  );
-});
-
-router.post("/users", (req, res) => {
-  const { username, email } = req.body;
-
-  if (!username || !email) {
-    return res
-      .status(400)
-      .json({ error: "Both username and email are required" });
-  }
-
-  pool.query(
-    "INSERT INTO users (username, email) VALUES ($1, $2)",
-    [username, email],
-    (err, result) => {
-      if (err) {
-        console.error("Error inserting user into the database", err);
-        res.status(500).json({ error: "Internal server error" });
-      } else {
-        res.status(201).json({ message: "User created successfully" });
       }
     }
   );
@@ -278,15 +350,32 @@ router.post("/meetings", async (req, res) => {
     const meetingId = meetingResult.rows[0].meeting_id;
 
     // find user ids for the members
+
     const userIds = [];
     for (const member of meeting.members) {
-      const userResult = await client.query(
-        "SELECT user_id FROM users WHERE first_name = $1",
-        [member.first_name]
+      // console.log(member);
+      var name = member.first_name.split(", ");
+
+      // separate the three strings into variables
+      var cn = name[0];
+      var full_name = cn.split(" ");
+      var first_name_db = full_name[0];
+      var last_name_db = full_name[1];
+      var uid = name[1];
+      var email = name[2];
+      var hasRightsToEdit = member.hasRightsToEdit;
+
+      var userResult = await client.query(
+        "SELECT user_id FROM users WHERE ldap_name = $1",
+        [uid]
       );
       if (userResult.rows.length === 0) {
-        // not found error
-        throw new Error(`User not found with name: ${member.first_name}`);
+        userResult = await client.query(
+          "INSERT INTO users (ldap_name, first_name, last_name, email, password) VALUES ($1, $2, $3, $4, $5) RETURNING user_id",
+          [uid, first_name_db, last_name_db, email, "noPW"]
+        );
+        // not found error ?
+        // throw new Error(`User not found with name: ${uid}`);
       }
       userIds.push(userResult.rows[0].user_id);
 
@@ -401,13 +490,26 @@ router.put("/meetings", async (req, res) => {
     // find user ids for the members
     const userIds = [];
     for (const member of meeting.members) {
-      const userResult = await client.query(
+      var name = member.first_name.split(", ");
+
+      var cn = name[0];
+      var full_name = cn.split(" ");
+      var first_name_db = full_name[0];
+      var last_name_db = full_name[1];
+      var uid = name[1];
+      var email = name[2];
+
+      var userResult = await client.query(
         "SELECT user_id FROM users WHERE first_name = $1",
         [member.first_name]
       );
       if (userResult.rows.length === 0) {
-        // user not found error
-        throw new Error(`User not found with name: ${member.first_name}`);
+        userResult = await client.query(
+          "INSERT INTO users (ldap_name, first_name, last_name, email, password) VALUES ($1, $2, $3, $4, $5) RETURNING user_id",
+          [uid, first_name_db, last_name_db, email, "noPW"]
+        );
+        // user not found error ?
+        // throw new Error(`User not found with name: ${member.first_name}`);
       }
 
       const userId = userResult.rows[0].user_id;
@@ -540,7 +642,7 @@ router.get("/agenda/:id", async (req, res) => {
 
     const agendaId = req.params.id;
 
-    // Fetch agenda details
+    // fetch agenda details
     const agendaQuery = "SELECT * FROM agendas WHERE agenda_id = $1";
     const agendaResult = await client.query(agendaQuery, [agendaId]);
     const agenda = agendaResult.rows[0];
@@ -550,7 +652,7 @@ router.get("/agenda/:id", async (req, res) => {
       return res.status(404).json({ error: "Agenda not found" });
     }
 
-    // Fetch action points for the agenda
+    // fetch action points for the agenda
     const actionPointsQuery =
       "SELECT * FROM action_points WHERE agenda_id = $1";
     const actionPointsResult = await client.query(actionPointsQuery, [
@@ -558,7 +660,7 @@ router.get("/agenda/:id", async (req, res) => {
     ]);
     const actionPoints = actionPointsResult.rows;
 
-    // Fetch subpoints for each action point
+    // fetch subpoints for each action point
     for (const actionPoint of actionPoints) {
       const subpointsQuery =
         "SELECT * FROM action_point_subpoints WHERE action_point_id = $1";
@@ -567,18 +669,18 @@ router.get("/agenda/:id", async (req, res) => {
       ]);
       actionPoint.subpoints = subpointsResult.rows;
 
-      // Fetch comments for each subpoint
-      for (const subpoint of actionPoint.subpoints) {
+      // fetch comments for each action point
+      for (const actionPoint of actionPoints) {
         const commentsQuery =
           "SELECT * FROM action_point_comments WHERE action_point_id = $1";
         const commentsResult = await client.query(commentsQuery, [
-          subpoint.action_point_subpoint_id,
+          actionPoint.action_point_id,
         ]);
-        subpoint.comments = commentsResult.rows;
+        actionPoint.comments = commentsResult.rows;
       }
     }
 
-    // Fetch meeting details associated with the agenda
+    // fetch meeting details associated with the agenda
     const meetingQuery = "SELECT * FROM meetings WHERE agenda_id = $1";
     const meetingResult = await client.query(meetingQuery, [agendaId]);
     const meeting = meetingResult.rows[0];
@@ -586,7 +688,7 @@ router.get("/agenda/:id", async (req, res) => {
     let meetingMembers = [];
 
     if (meeting) {
-      // Fetch meeting members and user names associated with the meeting
+      // fetch meeting members associated with the meeting
       const meetingMembersQuery = `
         SELECT meeting_members.*, users.first_name
         FROM meeting_members
@@ -599,10 +701,9 @@ router.get("/agenda/:id", async (req, res) => {
       meetingMembers = meetingMembersResult.rows;
     }
 
-    // Commit the transaction
     await client.query("COMMIT");
 
-    // Combine everything into a response object
+    // response obj
     const agendaWithDetails = {
       agenda,
       actionPoints,
@@ -612,96 +713,13 @@ router.get("/agenda/:id", async (req, res) => {
 
     res.json(agendaWithDetails);
   } catch (error) {
-    // Rollback the transaction in case of an error
     await client.query("ROLLBACK");
     console.error(error);
     res.status(500).json({ error: "Internal Server Error" });
   } finally {
-    // Release the client back to the pool
     client.release();
   }
 });
-
-// router.get("/agenda/:id", (req, res) => {
-//   // Use COUNT() to get the total number of users
-//   const agenda_id = req.params.id;
-//   const query = {
-//     text: `SELECT m.meeting_id, m.agenda_id, m.title, m.date, m.start_time, m.end_time, m.end_time, m.address, m.building, m.room,
-//     a.is_finalized,
-//     ap.text, ap.action_point_id,
-//     apc.user_id, apc.comment_text,
-//     apsp.action_point_subpoint_id, apsp.message
-//     FROM meetings as m
-//     JOIN agendas as a ON m.agenda_id = a.agenda_id
-//     JOIN action_points as ap ON m.agenda_id = ap.agenda_id
-//     JOIN action_point_comments as apc ON apc.action_point_id = ap.action_point_id
-//     JOIN action_point_subpoints as apsp ON apsp.action_point_id = ap.action_point_id
-//     WHERE m.meeting_id = $1;`,
-//     values: [agenda_id],
-//   };
-//   pool.query(query, (err, result) => {
-//     if (err) {
-//       console.error("Error executing SQL query", err);
-//       res.status(500).json({ error: "Internal server error" });
-//     } else {
-//       res.send(result.rows[0]);
-//     }
-//   });
-// });
-
-// router.get("/agenda/:id", async (req, res) => {
-//   const agendaId = req.params.id;
-
-//   try {
-//     const meetingDetailsQuery = `
-//       SELECT * FROM meetings
-//       WHERE agenda_id = $1;
-//     `;
-
-//     const meetingMembersQuery = `
-//       SELECT m.user_id, m.is_owner, m.edit_agenda, u.first_name
-//       FROM meeting_members m
-//       INNER JOIN users u ON m.user_id = u.user_id
-//       WHERE m.meeting_id = $1;
-//     `;
-
-//     const agendaPointsQuery = `
-//     SELECT
-//       a.action_point_id,
-//       a.text AS action_point_text,
-//       aps.action_point_subpoint_id,
-//       aps.message AS subpoint_message
-//     FROM action_points a
-//     LEFT JOIN action_point_subpoints aps ON a.action_point_id = aps.action_point_id
-//     WHERE a.agenda_id = $1;
-//   `;
-
-//     const commentsQuery = `
-//       SELECT apc.action_point_comment_id, apc.comment_text, apc.user_id, u.first_name
-//       FROM action_point_comments apc
-//       INNER JOIN users u ON apc.user_id = u.user_id
-//       WHERE apc.action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id = $1);
-//     `;
-
-//     const meetingDetails = await pool.query(meetingDetailsQuery, [agendaId]);
-//     const meetingMembers = await pool.query(meetingMembersQuery, [agendaId]);
-//     const agendaPoints = await pool.query(agendaPointsQuery, [agendaId]);
-//     const comments = await pool.query(commentsQuery, [agendaId]);
-
-//     // Construct the response object as per your requirements
-//     const response = {
-//       meetingDetails: meetingDetails.rows,
-//       meetingMembers: meetingMembers.rows,
-//       agendaPoints: agendaPoints.rows,
-//       comments: comments.rows,
-//     };
-
-//     res.json(response);
-//   } catch (error) {
-//     console.error("Error fetching meeting details:", error);
-//     res.status(500).json({ error: "Internal Server Error" });
-//   }
-// });
 
 router.get("/actionPoints/:id", async (req, res) => {
   const pool = new Pool({
