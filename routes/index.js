@@ -125,10 +125,10 @@ async function fetchUserFromLDAP(username) {
     });
 
     // in bind dn username (uid) from the user that wants to search
-    const bindDN = `uid=YOUR_UID,ou=people,dc=technikum-wien,dc=at`;
+    const bindDN = `uid=if21b097,ou=people,dc=technikum-wien,dc=at`;
 
     // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
-    client.bind(bindDN, "YOUR_PW", function (bindError) {
+    client.bind(bindDN, "7RCgag42", function (bindError) {
       if (bindError) {
         console.error("LDAP bind failed:", bindError.message);
         reject(bindError);
@@ -189,6 +189,24 @@ async function fetchUserFromLDAP(username) {
     });
   });
 }
+
+router.get("/getNotifications", async function (req,res, next){
+  try {
+    const { active_uid } = req.query;
+    console.log("Fetch Notifications from user with id: " + JSON.stringify(req.query));
+    // these fields are required for edit agenda details
+    const query = `SELECT m.date, m.start_time,m.title, m.agenda_id, mm.edit_agenda, m.meeting_id,
+                    m.address, m.building, m.room, m.end_time
+                    FROM meeting_members mm
+                    JOIN meetings m ON mm.meeting_id = m.meeting_id
+                    WHERE mm.user_id = $1;`;
+    const allNotifications = await pool.query(query, [active_uid]);
+    res.json(allNotifications.rows);
+  } catch (err) {
+    console.error("Error getting Notifications: " + err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 router.get("/getMeetings", async function (req, res, next) {
   try {
