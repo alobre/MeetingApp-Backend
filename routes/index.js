@@ -208,6 +208,20 @@ router.get("/getNotifications", async function (req,res, next){
   }
 });
 
+router.get("/getRightToEdit", async function (req,res){
+  try {
+    const { active_uid } = req.query;
+    console.log("check if user with id " + active_uid + " has right to edit for meeting: " + req.query.meeting_id);
+    const query = `SELECT (edit_agenda) FROM "meeting_members" WHERE meeting_id = $1 AND user_id = $2;`;
+    const hasRightToEdit = await pool.query(query, [req.query.meeting_id, active_uid]);
+    console.log("answer from db has right to edit: " + JSON.stringify(hasRightToEdit));
+    res.json(hasRightToEdit);
+  } catch (err) {
+    console.error("Error getting hasRightToEditAgenda: " + err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.get("/getMeetings", async function (req, res, next) {
   try {
     const query = `
