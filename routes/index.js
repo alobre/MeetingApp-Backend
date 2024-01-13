@@ -125,7 +125,7 @@ async function fetchUserFromLDAP(username) {
     });
 
     // in bind dn username (uid) from the user that wants to search
-    const bindDN = `uid=YOUR_UID,ou=people,dc=technikum-wien,dc=at`;
+    const bindDN = `uid=YOUR_LDAP_UID,ou=people,dc=technikum-wien,dc=at`;
 
     // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
     client.bind(bindDN, "YOUR_PW", function (bindError) {
@@ -222,8 +222,9 @@ router.get("/getRightToEdit", async function (req,res){
   }
 });
 
-router.get("/getMeetings", async function (req, res, next) {
+router.get("/getMeetings/:id", async function (req, res, next) {
   try {
+    userId = req.params.id;
     const query = `
     SELECT
     meetings.meeting_id,
@@ -252,13 +253,11 @@ router.get("/getMeetings", async function (req, res, next) {
   LEFT JOIN meeting_series ON meetings.meeting_series_id = meeting_series.meeting_series_id
   LEFT JOIN meeting_members ON meetings.meeting_id = meeting_members.meeting_id
   LEFT JOIN users ON meeting_members.user_id = users.user_id
+  WHERE users.user_id = $1
   GROUP BY
     meetings.meeting_id,
-    meeting_series.meeting_series_name;
-  
-  
-    `;
-    const allMeetings = await pool.query(query);
+    meeting_series.meeting_series_name;`;
+    const allMeetings = await pool.query(query, [userId]);
     res.json(allMeetings.rows);
   } catch (err) {
     console.error(err.message);
@@ -422,20 +421,6 @@ router.post("/meetings", async (req, res) => {
           member.is_owner,
         ]
       );
-      // insert notification to added member
-      if (!member.hasRightsToEdit) {
-        await client.query(
-          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
-
-          [userResult.rows[0].user_id]
-        );
-      } else {
-        await client.query(
-          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
-
-          [userResult.rows[0].user_id]
-        );
-      }
     }
 
     // commit the transaction
