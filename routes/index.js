@@ -190,10 +190,12 @@ async function fetchUserFromLDAP(username) {
   });
 }
 
-router.get("/getNotifications", async function (req,res, next){
+router.get("/getNotifications", async function (req, res, next) {
   try {
     const { active_uid } = req.query;
-    console.log("Fetch Notifications from user with id: " + JSON.stringify(req.query));
+    console.log(
+      "Fetch Notifications from user with id: " + JSON.stringify(req.query)
+    );
     // these fields are required for edit agenda details
     const query = `SELECT m.date, m.start_time,m.title, m.agenda_id, mm.edit_agenda, m.meeting_id,
                     m.address, m.building, m.room, m.end_time
@@ -204,21 +206,31 @@ router.get("/getNotifications", async function (req,res, next){
     res.json(allNotifications.rows);
   } catch (err) {
     console.error("Error getting Notifications: " + err.message);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-router.get("/getRightToEdit", async function (req,res){
+router.get("/getRightToEdit", async function (req, res) {
   try {
     const { active_uid } = req.query;
-    console.log("check if user with id " + active_uid + " has right to edit for meeting: " + req.query.meeting_id);
+    console.log(
+      "check if user with id " +
+        active_uid +
+        " has right to edit for meeting: " +
+        req.query.meeting_id
+    );
     const query = `SELECT (edit_agenda) FROM "meeting_members" WHERE meeting_id = $1 AND user_id = $2;`;
-    const hasRightToEdit = await pool.query(query, [req.query.meeting_id, active_uid]);
-    console.log("answer from db has right to edit: " + JSON.stringify(hasRightToEdit));
+    const hasRightToEdit = await pool.query(query, [
+      req.query.meeting_id,
+      active_uid,
+    ]);
+    console.log(
+      "answer from db has right to edit: " + JSON.stringify(hasRightToEdit)
+    );
     res.json(hasRightToEdit);
   } catch (err) {
     console.error("Error getting hasRightToEditAgenda: " + err.message);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -250,10 +262,14 @@ router.get("/getMeetings/:id", async function (req, res, next) {
       )
     ) AS members
   FROM meetings
-  LEFT JOIN meeting_series ON meetings.meeting_series_id = meeting_series.meeting_series_id
-  LEFT JOIN meeting_members ON meetings.meeting_id = meeting_members.meeting_id
-  LEFT JOIN users ON meeting_members.user_id = users.user_id
-  WHERE users.user_id = $1
+    LEFT JOIN meeting_series ON meetings.meeting_series_id = meeting_series.meeting_series_id
+    LEFT JOIN meeting_members ON meetings.meeting_id = meeting_members.meeting_id
+    LEFT JOIN users ON meeting_members.user_id = users.user_id
+  WHERE meetings.meeting_id IN (
+    SELECT meeting_id
+    FROM meeting_members
+    WHERE user_id = $1
+  )
   GROUP BY
     meetings.meeting_id,
     meeting_series.meeting_series_name;`;
