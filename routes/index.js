@@ -723,7 +723,7 @@ router.get("/agenda/:id", async (req, res) => {
     if (meeting) {
       // fetch meeting members associated with the meeting
       const meetingMembersQuery = `
-        SELECT meeting_members.*, users.first_name
+      SELECT meeting_members.*, users.first_name, users.last_name, users.email
         FROM meeting_members
         LEFT JOIN users ON meeting_members.user_id = users.user_id
         WHERE meeting_id = $1
@@ -843,22 +843,71 @@ router.get("/actionPoints/:id", async (req, res) => {
   });
 });
 
-router.delete("/actionPoint/:id", (req, res) => {
-  const action_point_id = req.params.id;
+router.delete("/actionPoint/:actionPointId", async (req, res) => {
+  const actionPointId = req.params.actionPointId;
+  const client = await pool.connect();
 
-  pool.query(
-    "DELETE FROM action_points WHERE action_point_id = $1",
-    [action_point_id],
-    (err, result) => {
-      if (err) {
-        console.error("Error deleting user from the database", err);
-        res.status(500).json({ error: "Internal server error" });
-      } else {
-        res.json({ message: "actionPoint deleted successfully" });
-      }
-    }
-  );
+  try {
+    await client.query("BEGIN");
+
+    // delete sp notes
+    await client.query(
+      "DELETE FROM subpoint_notes WHERE action_point_subpoint_id IN (SELECT action_point_subpoint_id FROM action_point_subpoints WHERE action_point_id = $1)",
+      [actionPointId]
+    );
+
+    // delete comment notes
+    await client.query(
+      "DELETE FROM comment_notes WHERE action_point_comment_id IN (SELECT action_point_comment_id FROM action_point_comments WHERE action_point_id = $1)",
+      [actionPointId]
+    );
+
+    // delete subpoints
+    await client.query(
+      "DELETE FROM action_point_subpoints WHERE action_point_id = $1",
+      [actionPointId]
+    );
+
+    // delete comments
+    await client.query(
+      "DELETE FROM action_point_comments WHERE action_point_id = $1",
+      [actionPointId]
+    );
+
+    // delete ap
+    await client.query("DELETE FROM action_points WHERE action_point_id = $1", [
+      actionPointId,
+    ]);
+
+    await client.query("COMMIT");
+
+    res.send("Action point and action point data deleted successfully!");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error deleting action point", error);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
 });
+
+// router.delete("/actionPoint/:id", (req, res) => {
+//   const action_point_id = req.params.id;
+
+//   pool.query(
+//     "DELETE FROM action_points WHERE action_point_id = $1",
+//     [action_point_id],
+//     (err, result) => {
+//       if (err) {
+//         console.error("Error deleting user from the database", err);
+//         res.status(500).json({ error: "Internal server error" });
+//       } else {
+//         res.json({ message: "actionPoint deleted successfully" });
+//       }
+//     }
+//   );
+// });
+
 router.delete("/actionPointSubpoint/:id", (req, res) => {
   const action_point_subpoint_id = req.params.id;
 
@@ -901,36 +950,42 @@ router.delete("/actionPointComment/:id", (req, res) => {
   );
 });
 
+// router.post("/actionPoint", (req, res) => {
+//   const { text, agenda_id } = req.body;
+//   const query = {
+//     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
+//     values: [agenda_id, text],
+//   };
+//   pool.query(query, (err, result) => {
+//     if (err) {
+//       console.error("Error executing SQL query", err);
+//       res.status(500).json({ error: "Internal server error" });
+//     } else {
+//       const query2 = {
+//         text: `SELECT * FROM action_points WHERE a`,
+//         values: [agenda_id, text],
+//       };
+//       pool.query(query2, (err, result) => {
+//         if (err) {
+//           console.error("Error executing SQL query", err);
+//           res.status(500).json({ error: "Internal server error" });
+//         } else {
+//           res.send(result.rows[0]);
+//         }
+//       });
+//     }
+//   });
+// });
+
 router.post("/actionPoint", (req, res) => {
-  const { text, agenda_id } = req.body;
+  const text = req.body.text;
+  const agenda_id = req.body.agenda_id;
+
+  console.log("text " + text);
+  console.log("ag id " + agenda_id);
+
   const query = {
-    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
-    values: [agenda_id, text],
-  };
-  pool.query(query, (err, result) => {
-    if (err) {
-      console.error("Error executing SQL query", err);
-      res.status(500).json({ error: "Internal server error" });
-    } else {
-      const query2 = {
-        text: `SELECT * FROM action_points WHERE a`,
-        values: [agenda_id, text],
-      };
-      pool.query(query2, (err, result) => {
-        if (err) {
-          console.error("Error executing SQL query", err);
-          res.status(500).json({ error: "Internal server error" });
-        } else {
-          res.send(result.rows[0]);
-        }
-      });
-    }
-  });
-});
-router.post("/actionPoint", (req, res) => {
-  const { text, agenda_id } = req.body;
-  const query = {
-    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
+    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2) RETURNING action_point_id`,
     values: [agenda_id, text],
   };
   pool.query(query, (err, result) => {
@@ -953,6 +1008,7 @@ router.post("/actionPoint", (req, res) => {
     }
   });
 });
+
 router.put("/actionPoint", (req, res) => {
   const { text, agenda_id } = req.body;
   const query = {
@@ -985,6 +1041,7 @@ router.post("/actionPointComment", (req, res) => {
     }
   });
 });
+
 router.put("/actionPointComment", (req, res) => {
   const { user_id, comment_text, action_point_id } = req.body;
   const query = {
@@ -1002,7 +1059,13 @@ router.put("/actionPointComment", (req, res) => {
 });
 
 router.post("/actionPointSubPoint", (req, res) => {
-  const { message, action_point_id } = req.body;
+  const message = req.body.message;
+  const action_point_id = req.body.action_point_id;
+
+  console.log("message for /actionPointSubPoint: " + message);
+  console.log("action point id for /actionPointSubPoint: " + action_point_id);
+
+  // const { message, action_point_id } = req.body;
   const query = {
     text: `INSERT INTO action_point_subpoints(message, action_point_id) VALUES ($1, $2)`,
     values: [message, action_point_id],
@@ -1031,4 +1094,154 @@ router.put("/actionPointSubPoint", (req, res) => {
     }
   });
 });
+
+router.post("/commentNotes", (req, res) => {
+  const { action_point_comment_id, text } = req.body;
+  const query = {
+    text: `INSERT INTO comment_notes(text, action_point_comment_id) VALUES ($1, $2)`,
+    values: [text, action_point_comment_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("inserted comment note successful!");
+    }
+  });
+});
+
+router.post("/subpointNotes", (req, res) => {
+  const action_point_subpoint_id = req.body.action_point_subpoint_id;
+  const text = req.body.text;
+  console.log("body " + JSON.stringify(req.body));
+
+  console.log("act pt sp id " + action_point_subpoint_id + " text " + text);
+
+  console.log(
+    "act pt sp id body " +
+      req.body.action_point_subpoint_id +
+      " text " +
+      req.body.text
+  );
+
+  const query = {
+    text: `INSERT INTO subpoint_notes(text, action_point_subpoint_id) VALUES ($1, $2)`,
+    values: [text, action_point_subpoint_id],
+  };
+  pool.query(query, (err, result) => {
+    if (err) {
+      console.error("Error executing SQL query", err);
+      res.status(500).json({ error: "Internal server error" });
+    } else {
+      res.send("inserted comment note successful!");
+    }
+  });
+});
+
+router.get("/protocol/:id", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const agendaId = req.params.id;
+
+    // fetch agenda details
+    const agendaQuery = "SELECT * FROM agendas WHERE agenda_id = $1";
+    const agendaResult = await client.query(agendaQuery, [agendaId]);
+    const agenda = agendaResult.rows[0];
+
+    if (!agenda) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Agenda not found" });
+    }
+
+    // fetch action points for the agenda
+    const actionPointsQuery =
+      "SELECT * FROM action_points WHERE agenda_id = $1";
+    const actionPointsResult = await client.query(actionPointsQuery, [
+      agendaId,
+    ]);
+    const actionPoints = actionPointsResult.rows;
+
+    // fetch subpoints and notes for each action point
+    for (const actionPoint of actionPoints) {
+      const subpointsQuery =
+        "SELECT * FROM action_point_subpoints WHERE action_point_id = $1";
+      const subpointsResult = await client.query(subpointsQuery, [
+        actionPoint.action_point_id,
+      ]);
+      actionPoint.subpoints = subpointsResult.rows;
+
+      // fetch notes for each subpoint
+      for (const subpoint of actionPoint.subpoints) {
+        const notesQuery =
+          "SELECT * FROM subpoint_notes WHERE action_point_subpoint_id = $1";
+        const notesResult = await client.query(notesQuery, [
+          subpoint.action_point_subpoint_id,
+        ]);
+        subpoint.notes = notesResult.rows;
+      }
+
+      // fetch comments for each action point
+      const commentsQuery =
+        "SELECT * FROM action_point_comments WHERE action_point_id = $1";
+      const commentsResult = await client.query(commentsQuery, [
+        actionPoint.action_point_id,
+      ]);
+      actionPoint.comments = commentsResult.rows;
+
+      // fetch notes for each comment
+      for (const comment of actionPoint.comments) {
+        const notesQuery =
+          "SELECT * FROM comment_notes WHERE action_point_comment_id = $1";
+        const notesResult = await client.query(notesQuery, [
+          comment.action_point_comment_id,
+        ]);
+        comment.notes = notesResult.rows;
+      }
+    }
+
+    // fetch meeting details associated with the agenda
+    const meetingQuery = "SELECT * FROM meetings WHERE agenda_id = $1";
+    const meetingResult = await client.query(meetingQuery, [agendaId]);
+    const meeting = meetingResult.rows[0];
+
+    let meetingMembers = [];
+
+    if (meeting) {
+      // fetch meeting members associated with the meeting
+      const meetingMembersQuery = `
+        SELECT meeting_members.*, users.first_name, users.last_name, users.email
+        FROM meeting_members
+        LEFT JOIN users ON meeting_members.user_id = users.user_id
+        WHERE meeting_id = $1
+      `;
+      const meetingMembersResult = await client.query(meetingMembersQuery, [
+        meeting.meeting_id,
+      ]);
+      meetingMembers = meetingMembersResult.rows;
+    }
+
+    await client.query("COMMIT");
+
+    // response obj
+    const agendaWithDetails = {
+      agenda,
+      actionPoints,
+      meeting,
+      meetingMembers,
+    };
+
+    res.json(agendaWithDetails);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
