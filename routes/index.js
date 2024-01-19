@@ -4,7 +4,7 @@ const pool = require("../db");
 const { Pool } = require("pg");
 const ldap = require("ldapjs");
 const fuzzy = require("fuzzy");
-require('dotenv').config();
+require("dotenv").config();
 
 /* LOGIN */
 
@@ -573,19 +573,19 @@ router.put("/meetings", async (req, res) => {
       userIds.push(userId);
 
       // insert notification to added member
-      if (!member.hasRightsToEdit) {
-        await client.query(
-          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
+      // if (!member.hasRightsToEdit) {
+      //   await client.query(
+      //     "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
 
-          [userResult.rows[0].user_id]
-        );
-      } else {
-        await client.query(
-          "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
+      //     [userResult.rows[0].user_id]
+      //   );
+      // } else {
+      //   await client.query(
+      //     "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
 
-          [userResult.rows[0].user_id]
-        );
-      }
+      //     [userResult.rows[0].user_id]
+      //   );
+      // }
     }
 
     // commit the transaction
@@ -759,93 +759,213 @@ router.get("/agenda/:id", async (req, res) => {
   }
 });
 
+// test
+// router.get("/actionPoints/:id", async (req, res) => {
+//   const client = await pool.connect();
+
+//   try {
+//     const agenda_id = req.params.id;
+//     const actionPointQuery = {
+//       text: `SELECT *
+//              FROM action_points
+//              WHERE agenda_id = $1;`,
+//       values: [agenda_id],
+//     };
+
+//     const result = await client.query(actionPointQuery);
+//     const actionPoints = result.rows;
+
+//     const promises = actionPoints.map(async (ap) => {
+//       const actionPointCommentsQuery = {
+//         text: `SELECT
+//                   action_point_comment_id,
+//                   user_id,
+//                   comment_text
+//                FROM action_point_comments
+//                WHERE action_point_id = $1;`,
+//         values: [ap.action_point_id],
+//       };
+
+//       const actionPointSubPointsQuery = {
+//         text: `SELECT
+//                   action_point_subpoint_id,
+//                   message
+//                FROM action_point_subpoints
+//                WHERE action_point_id = $1;`,
+//         values: [ap.action_point_id],
+//       };
+
+//       const commentsResult = await client.query(actionPointCommentsQuery);
+//       ap.actionPointComments = commentsResult.rows;
+
+//       const subPointsResult = await client.query(actionPointSubPointsQuery);
+//       ap.actionPointSubPoints = subPointsResult.rows;
+
+//       return ap;
+//     });
+
+//     const updatedActionPoints = await Promise.all(promises);
+
+//     res.send(updatedActionPoints);
+//   } catch (error) {
+//     console.error("Error handling request", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   } finally {
+//     // Release the client back to the pool
+//     client.release();
+//   }
+// });
+
+// router.get("/actionPoints/:id", async (req, res) => {
+//   const pool = new Pool({
+//     connectionString:
+//       "postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh",
+//   });
+//   const client = await pool.connect();
+
+//   const agenda_id = req.params.id;
+//   const actionPointQuery = {
+//     text: `SELECT *
+//     FROM action_points
+//     WHERE agenda_id = $1;
+//     `,
+//     values: [agenda_id],
+//   };
+//   let actionPoints;
+//   client.query(actionPointQuery, async (err, result) => {
+//     if (err) {
+//       console.error("Error executing SQL query1", err);
+//       res.status(500).json({ error: "Internal server error1" });
+//     } else {
+//       actionPoints = result.rows;
+//       // await client.release();
+//       const promises = actionPoints.map((ap) => {
+//         const actionPointCommentsQuery = {
+//           text: `
+//             SELECT
+//               action_point_comment_id,
+//               user_id,
+//               comment_text
+//             FROM action_point_comments
+//             WHERE action_point_id = $1;
+//           `,
+//           values: [ap.action_point_id],
+//         };
+
+//         const actionPointSubPointsQuery = {
+//           text: `
+//             SELECT
+//               action_point_subpoint_id,
+//               message
+//             FROM action_point_subpoints
+//             WHERE action_point_id = $1;
+//           `,
+//           values: [ap.action_point_id],
+//         };
+
+//         const commentPromise = new Promise((resolve, reject) => {
+//           client.query(actionPointCommentsQuery, async (err, result) => {
+//             if (err) {
+//               console.error("Error executing comments query2", err);
+//               reject(err);
+//             } else {
+//               ap = { ...ap, actionPointComments: result.rows };
+//               resolve(ap);
+//               // await client.release();
+//             }
+//           });
+//         });
+
+//         const subPointPromise = new Promise((resolve, reject) => {
+//           client.query(actionPointSubPointsQuery, async (err, result) => {
+//             if (err) {
+//               console.error("Error executing subpoints query3", err);
+//               reject(err);
+//             } else {
+//               ap = { ...ap, actionPointSubPoints: result.rows };
+//               resolve(ap);
+//               // await client.release();
+//             }
+//           });
+//         });
+//         return Promise.all([commentPromise, subPointPromise]).then(() => ap);
+//       });
+
+//       Promise.all(promises)
+//         .then(async (updatedActionPoints) => {
+//           res.send(updatedActionPoints);
+//           await client.release();
+//           await client.end();
+//         })
+//         .catch((error) => {
+//           console.error("Error in sending queries", error);
+//           res.status(500).json({ error: "Internal server error" });
+//         });
+//     }
+//   });
+// });
+
 router.get("/actionPoints/:id", async (req, res) => {
-  const pool = new Pool({
-    connectionString:
-      "postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh",
-  });
   const client = await pool.connect();
 
-  const agenda_id = req.params.id;
-  const actionPointQuery = {
-    text: `SELECT *
-    FROM action_points
-    WHERE agenda_id = $1;
-    `,
-    values: [agenda_id],
-  };
-  let actionPoints;
-  client.query(actionPointQuery, async (err, result) => {
-    if (err) {
-      console.error("Error executing SQL query1", err);
-      res.status(500).json({ error: "Internal server error1" });
-    } else {
-      actionPoints = result.rows;
-      // await client.release();
-      const promises = actionPoints.map((ap) => {
-        const actionPointCommentsQuery = {
-          text: `
-            SELECT
-              action_point_comment_id,
-              user_id, 
-              comment_text
-            FROM action_point_comments
-            WHERE action_point_id = $1;
-          `,
-          values: [ap.action_point_id],
-        };
+  try {
+    const agenda_id = req.params.id;
+    const actionPointQuery = {
+      text: `SELECT *
+        FROM action_points
+        WHERE agenda_id = $1;
+      `,
+      values: [agenda_id],
+    };
 
-        const actionPointSubPointsQuery = {
-          text: `
-            SELECT
-              action_point_subpoint_id,
-              message
-            FROM action_point_subpoints
-            WHERE action_point_id = $1;
-          `,
-          values: [ap.action_point_id],
-        };
+    const result = await client.query(actionPointQuery);
+    let actionPoints = result.rows;
 
-        const commentPromise = new Promise((resolve, reject) => {
-          client.query(actionPointCommentsQuery, async (err, result) => {
-            if (err) {
-              console.error("Error executing comments query2", err);
-              reject(err);
-            } else {
-              ap = { ...ap, actionPointComments: result.rows };
-              resolve(ap);
-              // await client.release();
-            }
-          });
-        });
+    for (let i = 0; i < actionPoints.length; i++) {
+      const ap = actionPoints[i];
 
-        const subPointPromise = new Promise((resolve, reject) => {
-          client.query(actionPointSubPointsQuery, async (err, result) => {
-            if (err) {
-              console.error("Error executing subpoints query3", err);
-              reject(err);
-            } else {
-              ap = { ...ap, actionPointSubPoints: result.rows };
-              resolve(ap);
-              // await client.release();
-            }
-          });
-        });
-        return Promise.all([commentPromise, subPointPromise]).then(() => ap);
-      });
+      const actionPointCommentsQuery = {
+        text: `
+          SELECT
+            action_point_comment_id,
+            user_id,
+            comment_text
+          FROM action_point_comments
+          WHERE action_point_id = $1;
+        `,
+        values: [ap.action_point_id],
+      };
 
-      Promise.all(promises)
-        .then(async (updatedActionPoints) => {
-          res.send(updatedActionPoints);
-          await client.release();
-          await client.end();
-        })
-        .catch((error) => {
-          console.error("Error in sending queries", error);
-          res.status(500).json({ error: "Internal server error" });
-        });
+      const actionPointSubPointsQuery = {
+        text: `
+          SELECT
+            action_point_subpoint_id,
+            message
+          FROM action_point_subpoints
+          WHERE action_point_id = $1;
+        `,
+        values: [ap.action_point_id],
+      };
+
+      const [commentsResult, subPointsResult] = await Promise.all([
+        client.query(actionPointCommentsQuery),
+        client.query(actionPointSubPointsQuery),
+      ]);
+
+      actionPoints[i] = {
+        ...ap,
+        actionPointComments: commentsResult.rows,
+        actionPointSubPoints: subPointsResult.rows,
+      };
     }
-  });
+
+    res.send(actionPoints);
+  } catch (error) {
+    console.error("Error in sending queries", error);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    await client.release();
+  }
 });
 
 router.delete("/actionPoint/:actionPointId", async (req, res) => {
@@ -1145,6 +1265,7 @@ router.post("/subpointNotes", (req, res) => {
 });
 
 router.get("/protocol/:id", async (req, res) => {
+  console.log("IN PROT DB");
   const client = await pool.connect();
 
   try {
