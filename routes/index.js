@@ -4,6 +4,7 @@ const pool = require("../db");
 const { Pool } = require("pg");
 const ldap = require("ldapjs");
 const fuzzy = require("fuzzy");
+require('dotenv').config();
 
 /* LOGIN */
 
@@ -119,16 +120,20 @@ router.get("/user/:username", (req, res) => {
 });
 
 async function fetchUserFromLDAP(username) {
+  const bindDN = process.env.LDAP_BIND_DN;
+  const password = process.env.LDAP_PASSWORD;
+  const ldapURL = process.env.LDAP_URL;
+
   return new Promise((resolve, reject) => {
     const client = ldap.createClient({
-      url: "ldaps://ldap.technikum-wien.at:636",
+      url: ldapURL,
     });
 
     // in bind dn username (uid) from the user that wants to search
-    const bindDN = `uid=YOUR_LDAP_UID,ou=people,dc=technikum-wien,dc=at`;
+    // const bindDN = `uid=YOUR_LDAP_UID,ou=people,dc=technikum-wien,dc=at`;
 
     // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
-    client.bind(bindDN, "YOUR_PW", function (bindError) {
+    client.bind(bindDN, password, function (bindError) {
       if (bindError) {
         console.error("LDAP bind failed:", bindError.message);
         reject(bindError);
