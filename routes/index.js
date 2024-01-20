@@ -1102,36 +1102,74 @@ router.delete("/actionPointComment/:id", (req, res) => {
 //   });
 // });
 
-router.post("/actionPoint", (req, res) => {
+// philipp
+// router.post("/actionPoint", (req, res) => {
+//   const text = req.body.text;
+//   const agenda_id = req.body.agenda_id;
+
+//   console.log("text " + text);
+//   console.log("ag id " + agenda_id);
+
+//   const query = {
+//     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2) RETURNING action_point_id`,
+//     values: [agenda_id, text],
+//   };
+//   pool.query(query, (err, result) => {
+//     if (err) {
+//       console.error("Error executing SQL query", err);
+//       res.status(500).json({ error: "Internal server error" });
+//     } else {
+//       const query2 = {
+//         text: `SELECT * FROM action_points WHERE agenda_id = $1`,
+//         values: [agenda_id],
+//       };
+//       pool.query(query2, (err, result) => {
+//         if (err) {
+//           console.error("Error executing SQL query", err);
+//           res.status(500).json({ error: "Internal server error" });
+//         } else {
+//           res.send(result.rows[0]);
+//           console.log("in db res send " + JSON.stringify(result.rows[0]));
+//         }
+//       });
+//     }
+//   });
+// });
+
+router.post("/actionPoint", async (req, res) => {
   const text = req.body.text;
   const agenda_id = req.body.agenda_id;
 
-  console.log("text " + text);
-  console.log("ag id " + agenda_id);
+  const client = await pool.connect();
 
-  const query = {
-    text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2) RETURNING action_point_id`,
-    values: [agenda_id, text],
-  };
-  pool.query(query, (err, result) => {
-    if (err) {
-      console.error("Error executing SQL query", err);
-      res.status(500).json({ error: "Internal server error" });
-    } else {
-      const query2 = {
-        text: `SELECT * FROM action_points WHERE agenda_id = $1`,
-        values: [agenda_id],
-      };
-      pool.query(query2, (err, result) => {
-        if (err) {
-          console.error("Error executing SQL query", err);
-          res.status(500).json({ error: "Internal server error" });
-        } else {
-          res.send(result.rows[0]);
-        }
-      });
+  try {
+    await client.query("BEGIN");
+
+    const insertQuery = {
+      text: "INSERT INTO action_points(agenda_id, text) VALUES ($1, $2) RETURNING action_point_id",
+      values: [agenda_id, text],
+    };
+
+    const insertResult = await client.query(insertQuery);
+
+    await client.query("COMMIT");
+
+    res.status(201).json(insertResult.rows[0]);
+  } catch (error) {
+    console.error("Error executing SQL query", error);
+
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Error rolling back transaction", rollbackError);
     }
-  });
+
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
 });
 
 router.put("/actionPoint", (req, res) => {
