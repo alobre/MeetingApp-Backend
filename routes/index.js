@@ -433,7 +433,7 @@ router.post("/meetings", async (req, res) => {
 
       // insert meeting members into the meeting_members table
       await client.query(
-        "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false))",
+        "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, COALESCE($3, false), COALESCE($4, false)) ON CONFLICT (user_id, meeting_id) DO NOTHING;",
 
         [
           userResult.rows[0].user_id,
