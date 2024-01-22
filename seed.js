@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS notifications (
     notification_text character varying(255)
 );
 
+CREATE TABLE IF NOT EXISTS meeting_notes (
+  meeting_note_id serial PRIMARY KEY,
+  action_point_subpoint_id integer REFERENCES action_point_subpoints(action_point_subpoint_id),
+  note character varying(16768)
+);
+
 
 CREATE TABLE IF NOT EXISTS meeting_members (
   user_id integer,
@@ -101,6 +107,18 @@ CREATE TABLE IF NOT EXISTS action_point_comments (
     action_point_id integer NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS comment_notes (
+  comment_note_id serial PRIMARY KEY,
+  action_point_comment_id integer REFERENCES action_point_comments(action_point_comment_id),
+  text character varying(16384) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subpoint_notes (
+  subpoint_note_id serial PRIMARY KEY,
+  action_point_subpoint_id integer REFERENCES action_point_subpoints(action_point_subpoint_id),
+  text character varying(16384) NOT NULL
+);
+
   `,
   (err, result) => {
     if (err) {
@@ -111,7 +129,8 @@ CREATE TABLE IF NOT EXISTS action_point_comments (
   }
 );
 
-// Seed the table with initial data
+// Seed the table with initial data (used during development)
+/*
 pool.query(
   `
   INSERT INTO meeting_series (meeting_series_name)
@@ -186,3 +205,4 @@ VALUES (1, 'Suggest discussing marketing strategies during the opening', 5),
     }
   }
 );
+*/
