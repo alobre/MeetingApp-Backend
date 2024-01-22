@@ -350,6 +350,8 @@ router.post("/meetings", async (req, res) => {
 
   try {
     const meeting = req.body;
+    const meetingOwner = req.body.owner;
+    console.log("meeting owner: " + meetingOwner);
 
     client = await pool.connect();
 
@@ -377,7 +379,7 @@ router.post("/meetings", async (req, res) => {
       meetingSeriesId = seriesInsertResult.rows[0].meeting_series_id;
     }
 
-    // insert blank data into agendas table
+    // insert blank data into agen"sdas table
     const agendaResult = await client.query(
       "INSERT INTO agendas (is_finalized) VALUES (false) RETURNING agenda_id"
     );
@@ -386,12 +388,13 @@ router.post("/meetings", async (req, res) => {
 
     // insert meeting data into the meetings table with the agenda_id and meeting_series_id
     const meetingResult = await client.query(
-      "INSERT INTO meetings (agenda_id, meeting_series_id, title, address, room, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING meeting_id",
+      "INSERT INTO meetings (agenda_id, meeting_series_id, title, address, building, room, date, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING meeting_id",
       [
         agendaId,
         meetingSeriesId,
         meeting.title,
         meeting.address,
+        meeting.building,
         meeting.room,
         meeting.date,
         meeting.start_time,
@@ -443,6 +446,12 @@ router.post("/meetings", async (req, res) => {
         ]
       );
     }
+
+    // set meeting owner
+    await client.query(
+      "INSERT INTO meeting_members (user_id, meeting_id, edit_agenda, is_owner) VALUES ($1, $2, true, true) ON CONFLICT (user_id, meeting_id) DO NOTHING;",
+      [meetingOwner, meetingId]
+    );
 
     // commit the transaction
     await client.query("COMMIT");
