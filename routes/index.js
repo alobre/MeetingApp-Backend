@@ -3,7 +3,6 @@ var router = express.Router();
 const pool = require("../db");
 const { Pool } = require("pg");
 const ldap = require("ldapjs");
-const fuzzy = require("fuzzy");
 require("dotenv").config();
 
 /* LOGIN */
@@ -129,10 +128,6 @@ async function fetchUserFromLDAP(username) {
       url: ldapURL,
     });
 
-    // in bind dn username (uid) from the user that wants to search
-    // const bindDN = `uid=YOUR_LDAP_UID,ou=people,dc=technikum-wien,dc=at`;
-
-    // bind to the LDAP server (need pw as well - hash, store in localstorage and unhash here?)
     client.bind(bindDN, password, function (bindError) {
       if (bindError) {
         console.error("LDAP bind failed:", bindError.message);
@@ -302,7 +297,6 @@ router.get("/users", async (req, res) => {
           users,
         };
         res.json(response);
-        // res.send(response)
       }
     }
   );
@@ -408,7 +402,6 @@ router.post("/meetings", async (req, res) => {
 
     const userIds = [];
     for (const member of meeting.members) {
-      // console.log(member);
       var name = member.first_name.split(", ");
 
       // separate the three strings into variables
@@ -430,7 +423,6 @@ router.post("/meetings", async (req, res) => {
           [uid, first_name_db, last_name_db, email, "noPW"]
         );
         // not found error ?
-        // throw new Error(`User not found with name: ${uid}`);
       }
       userIds.push(userResult.rows[0].user_id);
 
@@ -459,7 +451,6 @@ router.post("/meetings", async (req, res) => {
     res.status(201).json({ message: "Meeting created successfully" });
   } catch (error) {
     // rollback the transaction in case of an error
-    // TODO in frontend handle errors
     if (client) {
       await client.query("ROLLBACK");
     }
@@ -556,7 +547,6 @@ router.put("/meetings", async (req, res) => {
           [uid, first_name_db, last_name_db, email, "noPW"]
         );
         // user not found error ?
-        // throw new Error(`User not found with name: ${member.first_name}`);
       }
 
       const userId = userResult.rows[0].user_id;
@@ -580,21 +570,6 @@ router.put("/meetings", async (req, res) => {
       }
 
       userIds.push(userId);
-
-      // insert notification to added member
-      // if (!member.hasRightsToEdit) {
-      //   await client.query(
-      //     "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting.')",
-
-      //     [userResult.rows[0].user_id]
-      //   );
-      // } else {
-      //   await client.query(
-      //     "INSERT INTO notifications (user_id, notification_text) VALUES ($1, 'You have been invited to a meeting, feel free to edit the agenda.')",
-
-      //     [userResult.rows[0].user_id]
-      //   );
-      // }
     }
 
     // commit the transaction
@@ -602,8 +577,6 @@ router.put("/meetings", async (req, res) => {
 
     res.status(200).json({ message: "Meeting details updated successfully" });
   } catch (error) {
-    // rollback the transaction in case of an error
-    // TODO in frontend handle errors
     if (client) {
       await client.query("ROLLBACK");
     }
@@ -626,6 +599,18 @@ router.delete("/meetings/:meetingIdToDelete", async (req, res) => {
 
     // begin the transaction
     await client.query("BEGIN");
+
+    // delete comment notes associated with comments in the meeting
+    await client.query(
+      "DELETE FROM comment_notes WHERE action_point_comment_id IN (SELECT action_point_comment_id FROM action_point_comments WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)))",
+      [meetingId]
+    );
+
+    // delete subpoint notes associated with subpoints in the meeting
+    await client.query(
+      "DELETE FROM subpoint_notes WHERE action_point_subpoint_id IN (SELECT action_point_subpoint_id FROM action_point_subpoints WHERE action_point_id IN (SELECT action_point_id FROM action_points WHERE agenda_id IN (SELECT agenda_id FROM meetings WHERE meeting_id = $1)))",
+      [meetingId]
+    );
 
     // delete comments associated with action points in the meeting
     await client.query(
@@ -668,7 +653,6 @@ router.delete("/meetings/:meetingIdToDelete", async (req, res) => {
       .status(200)
       .json({ message: "Meeting and associated data deleted successfully." });
   } catch (error) {
-    // rollback in case of an error
     if (client) {
       await client.query("ROLLBACK");
     }
@@ -767,152 +751,6 @@ router.get("/agenda/:id", async (req, res) => {
     client.release();
   }
 });
-
-// test
-// router.get("/actionPoints/:id", async (req, res) => {
-//   const client = await pool.connect();
-
-//   try {
-//     const agenda_id = req.params.id;
-//     const actionPointQuery = {
-//       text: `SELECT *
-//              FROM action_points
-//              WHERE agenda_id = $1;`,
-//       values: [agenda_id],
-//     };
-
-//     const result = await client.query(actionPointQuery);
-//     const actionPoints = result.rows;
-
-//     const promises = actionPoints.map(async (ap) => {
-//       const actionPointCommentsQuery = {
-//         text: `SELECT
-//                   action_point_comment_id,
-//                   user_id,
-//                   comment_text
-//                FROM action_point_comments
-//                WHERE action_point_id = $1;`,
-//         values: [ap.action_point_id],
-//       };
-
-//       const actionPointSubPointsQuery = {
-//         text: `SELECT
-//                   action_point_subpoint_id,
-//                   message
-//                FROM action_point_subpoints
-//                WHERE action_point_id = $1;`,
-//         values: [ap.action_point_id],
-//       };
-
-//       const commentsResult = await client.query(actionPointCommentsQuery);
-//       ap.actionPointComments = commentsResult.rows;
-
-//       const subPointsResult = await client.query(actionPointSubPointsQuery);
-//       ap.actionPointSubPoints = subPointsResult.rows;
-
-//       return ap;
-//     });
-
-//     const updatedActionPoints = await Promise.all(promises);
-
-//     res.send(updatedActionPoints);
-//   } catch (error) {
-//     console.error("Error handling request", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   } finally {
-//     // Release the client back to the pool
-//     client.release();
-//   }
-// });
-
-// router.get("/actionPoints/:id", async (req, res) => {
-//   const pool = new Pool({
-//     connectionString:
-//       "postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh",
-//   });
-//   const client = await pool.connect();
-
-//   const agenda_id = req.params.id;
-//   const actionPointQuery = {
-//     text: `SELECT *
-//     FROM action_points
-//     WHERE agenda_id = $1;
-//     `,
-//     values: [agenda_id],
-//   };
-//   let actionPoints;
-//   client.query(actionPointQuery, async (err, result) => {
-//     if (err) {
-//       console.error("Error executing SQL query1", err);
-//       res.status(500).json({ error: "Internal server error1" });
-//     } else {
-//       actionPoints = result.rows;
-//       // await client.release();
-//       const promises = actionPoints.map((ap) => {
-//         const actionPointCommentsQuery = {
-//           text: `
-//             SELECT
-//               action_point_comment_id,
-//               user_id,
-//               comment_text
-//             FROM action_point_comments
-//             WHERE action_point_id = $1;
-//           `,
-//           values: [ap.action_point_id],
-//         };
-
-//         const actionPointSubPointsQuery = {
-//           text: `
-//             SELECT
-//               action_point_subpoint_id,
-//               message
-//             FROM action_point_subpoints
-//             WHERE action_point_id = $1;
-//           `,
-//           values: [ap.action_point_id],
-//         };
-
-//         const commentPromise = new Promise((resolve, reject) => {
-//           client.query(actionPointCommentsQuery, async (err, result) => {
-//             if (err) {
-//               console.error("Error executing comments query2", err);
-//               reject(err);
-//             } else {
-//               ap = { ...ap, actionPointComments: result.rows };
-//               resolve(ap);
-//               // await client.release();
-//             }
-//           });
-//         });
-
-//         const subPointPromise = new Promise((resolve, reject) => {
-//           client.query(actionPointSubPointsQuery, async (err, result) => {
-//             if (err) {
-//               console.error("Error executing subpoints query3", err);
-//               reject(err);
-//             } else {
-//               ap = { ...ap, actionPointSubPoints: result.rows };
-//               resolve(ap);
-//               // await client.release();
-//             }
-//           });
-//         });
-//         return Promise.all([commentPromise, subPointPromise]).then(() => ap);
-//       });
-
-//       Promise.all(promises)
-//         .then(async (updatedActionPoints) => {
-//           res.send(updatedActionPoints);
-//           await client.release();
-//           await client.end();
-//         })
-//         .catch((error) => {
-//           console.error("Error in sending queries", error);
-//           res.status(500).json({ error: "Internal server error" });
-//         });
-//     }
-//   });
-// });
 
 router.get("/actionPoints/:id", async (req, res) => {
   const client = await pool.connect();
@@ -1025,23 +863,6 @@ router.delete("/actionPoint/:actionPointId", async (req, res) => {
   }
 });
 
-// router.delete("/actionPoint/:id", (req, res) => {
-//   const action_point_id = req.params.id;
-
-//   pool.query(
-//     "DELETE FROM action_points WHERE action_point_id = $1",
-//     [action_point_id],
-//     (err, result) => {
-//       if (err) {
-//         console.error("Error deleting user from the database", err);
-//         res.status(500).json({ error: "Internal server error" });
-//       } else {
-//         res.json({ message: "actionPoint deleted successfully" });
-//       }
-//     }
-//   );
-// });
-
 router.delete("/actionPointSubpoint/:id", (req, res) => {
   const action_point_subpoint_id = req.params.id;
 
@@ -1083,67 +904,6 @@ router.delete("/actionPointComment/:id", (req, res) => {
     }
   );
 });
-
-// router.post("/actionPoint", (req, res) => {
-//   const { text, agenda_id } = req.body;
-//   const query = {
-//     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2)`,
-//     values: [agenda_id, text],
-//   };
-//   pool.query(query, (err, result) => {
-//     if (err) {
-//       console.error("Error executing SQL query", err);
-//       res.status(500).json({ error: "Internal server error" });
-//     } else {
-//       const query2 = {
-//         text: `SELECT * FROM action_points WHERE a`,
-//         values: [agenda_id, text],
-//       };
-//       pool.query(query2, (err, result) => {
-//         if (err) {
-//           console.error("Error executing SQL query", err);
-//           res.status(500).json({ error: "Internal server error" });
-//         } else {
-//           res.send(result.rows[0]);
-//         }
-//       });
-//     }
-//   });
-// });
-
-// philipp
-// router.post("/actionPoint", (req, res) => {
-//   const text = req.body.text;
-//   const agenda_id = req.body.agenda_id;
-
-//   console.log("text " + text);
-//   console.log("ag id " + agenda_id);
-
-//   const query = {
-//     text: `INSERT INTO action_points(agenda_id, text) VALUES ($1, $2) RETURNING action_point_id`,
-//     values: [agenda_id, text],
-//   };
-//   pool.query(query, (err, result) => {
-//     if (err) {
-//       console.error("Error executing SQL query", err);
-//       res.status(500).json({ error: "Internal server error" });
-//     } else {
-//       const query2 = {
-//         text: `SELECT * FROM action_points WHERE agenda_id = $1`,
-//         values: [agenda_id],
-//       };
-//       pool.query(query2, (err, result) => {
-//         if (err) {
-//           console.error("Error executing SQL query", err);
-//           res.status(500).json({ error: "Internal server error" });
-//         } else {
-//           res.send(result.rows[0]);
-//           console.log("in db res send " + JSON.stringify(result.rows[0]));
-//         }
-//       });
-//     }
-//   });
-// });
 
 router.post("/actionPoint", async (req, res) => {
   const text = req.body.text;
@@ -1237,7 +997,6 @@ router.post("/actionPointSubPoint", (req, res) => {
   console.log("message for /actionPointSubPoint: " + message);
   console.log("action point id for /actionPointSubPoint: " + action_point_id);
 
-  // const { message, action_point_id } = req.body;
   const query = {
     text: `INSERT INTO action_point_subpoints(message, action_point_id) VALUES ($1, $2)`,
     values: [message, action_point_id],
@@ -1251,6 +1010,7 @@ router.post("/actionPointSubPoint", (req, res) => {
     }
   });
 });
+
 router.put("/actionPointSubPoint", (req, res) => {
   const { message, action_point_subpoint_id } = req.body;
   const query = {
