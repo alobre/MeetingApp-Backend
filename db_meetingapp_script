@@ -1,15 +1,3 @@
-const { Pool } = require("pg");
-
-// Import required packages and configure the pool (similar to index.js)
-const pool = new Pool({
-  connectionString:
-    "postgres://pddeltbh:C_DtEUKeLuMCHmeEQE01fBMNNyhIR-W0@cornelius.db.elephantsql.com/pddeltbh",
-});
-
-// Create tables if it doesn't exist
-pool.query(
-  `
-
   CREATE TABLE IF NOT EXISTS users (
     user_id serial PRIMARY KEY,
     ldap_name character varying(255),
@@ -90,13 +78,3 @@ pool.query(
     action_point_subpoint_id integer REFERENCES action_point_subpoints(action_point_subpoint_id),
     text character varying(16384) NOT NULL
   );
-
-  `,
-  (err, result) => {
-    if (err) {
-      console.error("Error creating the tables", err);
-    } else {
-      console.log("tables created successfully");
-    }
-  }
-);
